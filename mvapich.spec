@@ -24,7 +24,7 @@
 Summary: MPI implementation over Infiniband RDMA-enabled interconnect
 Name: mvapich
 Version: 1.2.0
-Release: 0.3563.rc1.3%{?dist}
+Release: 0.3563.rc1.5%{?dist}
 License: BSD
 Group: Development/Libraries
 Source0: mvapich-1.2rc1.tar.gz
@@ -37,9 +37,6 @@ URL: http://mvapich.cse.ohio-state.edu/
 Requires: %{name}-common = %{version}-%{release}
 BuildRequires: libibverbs-devel >= 1.1.3, libibumad-devel, perl, autoconf
 BuildRequires: java, python
-%ifarch x86_64
-BuildRequires: infinipath-psm-devel
-%endif
 ExclusiveArch: i686 i386 x86_64 ia64 ppc64
 Provides: mpi
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -88,34 +85,38 @@ Summary: MPI implementation over QLogic infinipath-psm interconnect
 Group: Development/Libraries
 Requires: infinipath-psm
 ExclusiveArch: x86_64
+BuildRequires: infinipath-psm-devel
 
 %description psm
 Mvapich is a high performance and scalable MPI-1 implementation over Infiniband
 and RDMA-enabled interconnects.  This implementation is based on  MPICH
-and MVICH. MVAPICH is pronounced as `em-vah-pich''. 
+and MVICH. MVAPICH is pronounced as `em-vah-pich''.  This version of the
+library uses Qlogic's InfiniPath PSM library for transport.
 
 %package psm-devel
 Summary: Development files for the mvapich package
 Group: Development/Libraries
 Requires: libibverbs-devel >= 1.1.3, libibumad-devel
-Requires: %{name} = %{version}-%{release}
+Requires: %{name}-psm = %{version}-%{release}
 Provides: mpi-devel
 ExclusiveArch: x86_64
 
 %description psm-devel
 Development headers and compilers to be used with the mvapich base runtime
+when using QLogic's InfiniPath PSM transport library
 package
 
 %package psm-static
 Summary: Static libraries for the mvapich-psm package
 Group: Development/Libraries
-Requires: %{name}-devel = %{version}-%{release}
+Requires: %{name}-psm-devel = %{version}-%{release}
 ExclusiveArch: x86_64
 
 %description psm-static
 Contains the static libraries from the mvapich-psm package.  Static
 library usage is generally discouraged, but provided in this separate
-package for those who must have it.
+package for those who must have it.  This version of the library uses
+QLogic's InfiniPath PSM library for transport.
 %endif
 
 %prep
@@ -123,16 +124,18 @@ package for those who must have it.
 %patch0 -p1 -b .limit
 %patch1 -p1 -b .build
 # We need to do two compiles: one for psm, and one for regular.
-mkdir .psm .non-psm
 %ifarch x86_64
+mkdir .psm
 cp -r * .psm
 %endif
+mkdir .non-psm
 mv * .non-psm
-ln .non-psm/{CHANGELOG,COPYRIGHT*,INSTALL,LICENSE.TXT,README*} .
-mv .non-psm/{doc,examples,www,share,installtest} .
-ln -s ../{doc,examples,www,share,installtest} .non-psm
+mv .non-psm non-psm
+ln non-psm/{CHANGELOG,COPYRIGHT*,INSTALL,LICENSE.TXT,README*} .
+mv non-psm/{doc,examples,www,share,installtest} .
+ln -s ../{doc,examples,www,share,installtest} non-psm
 
-cd .non-psm
+cd non-psm
 OPTIMIZATION_FLAG="-O3 -fno-strict-aliasing"
 CONFIG_ENABLE_F77="--disable-f77"
 CONFIG_ENABLE_F90="--enable-f90"
@@ -319,7 +322,9 @@ export MPIRUN_CFLAGS="$MPIRUN_CFLAGS -DPARAM_GLOBAL=\\\"%{_sysconfidr}/%{namearc
 set -o pipefail
 ./configure --enable-sharedlib=%{mpidir}/lib --with-device=%{mpi_device} --with-mpd --with-arch=LINUX -prefix=%{mpidir} --with-echo $CONFIG_ENABLE_F77 $CONFIG_ENABLE_F90 $COMPILER_CONFIG -lib="-libverbs -libumad -lpthread $EXTRA_CFLAG" $MPE_FLAGS $CONFIG_FLAGS
 %ifarch x86_64
-cd ../.psm
+cd ..
+mv .psm psm
+cd psm
 export PREFIX=%{mpipsmdir}
 export MPIRUN_CFLAGS="$MPIRUN_CFLAGS -DPARAM_GLOBAL=\\\"%{_sysconfidr}/%{namepsmarch}/$conffile\\\" -DLD_LIBRARY_PATH_MPI=\\\"%{mpipsmdir}/lib\\\" -DMPI_PREFIX=\\\"%{mpipsmdir}/\\\""
 export CFLAGS="$TMP_CFLAGS -D$ARCH $OPTIMIZATION_FLAG -g -D_GNU_SOURCE -DCH_PSM -D_AFFINITY_ -DMEMORY_SCALE -D_SMP_ -D_SMP_RNDV_ -DVIADEV_RPUT_SUPPORT -DEARLY_SEND_COMPLETION"
@@ -332,16 +337,16 @@ export CFLAGS="$TMP_CFLAGS -D$ARCH $OPTIMIZATION_FLAG -g -D_GNU_SOURCE -DCH_PSM 
 %build
 # We found that the mvapich2 make system does smp unsafe things (at least when
 # doing smp makes over NFS), so use a non-smp make here too just for safety
-cd .non-psm
+cd non-psm
 make
 %ifarch x86_64
-cd ../.psm
+cd ../psm
 make
 %endif
 
 %install
 rm -rf %{buildroot}
-cd .non-psm
+cd non-psm
 make DESTDIR=%{buildroot} install 
 
 # Post install fixes
@@ -379,7 +384,7 @@ install -m644 -D %{SOURCE1} %{buildroot}%{_sysconfdir}/rpm/macros.%{namearch}
 mkdir -p %{buildroot}%{_sysconfdir}/modulefiles
 sed 's#@LIBDIR@#'%{_libdir}/%{name}'#g;s#@ETCDIR@#'%{_sysconfdir}/%{namearch}'#g;s#@FMODDIR@#'%{_fmoddir}/%{namearch}'#g;s#@INCDIR@#'%{_includedir}/%{namearch}'#g;s#@MANDIR@#'%{_mandir}/%{namearch}'#g;s#@PYSITEARCH@#'%{python_sitearch}/%{name}'#g;s#@COMPILER@#%{name}-'%{_arch}%{?_cc_name_suffix}'#g;s#@SUFFIX@#'%{?_cc_name_suffix}'_%{name}#g' < %{SOURCE2} > %{buildroot}%{_sysconfdir}/modulefiles/%{namearch}
 %ifarch x86_64
-cd ../.psm
+cd ../psm
 make DESTDIR=%{buildroot} install 
 
 # Post install fixes
@@ -428,7 +433,7 @@ rm -rf %{buildroot}
 %dir %{_mandir}/%{namearch}
 %dir %{_mandir}/%{namearch}/man?
 %{_mandir}/%{namearch}/man1/*
-%{_sysconfdir}/modulefiles/*
+%{_sysconfdir}/modulefiles/%{namearch}
 %dir %{python_sitearch}/*
 %dir %{_fmoddir}/*
 %exclude %{mpidir}/lib/*.a
@@ -441,7 +446,7 @@ rm -rf %{buildroot}
 %files devel
 %defattr(-, root, root, -)
 %{_mandir}/%{namearch}/man[34]/*
-%{_sysconfdir}/rpm/*
+%{_sysconfdir}/rpm/macros.%{namearch}
 %{mpidir}/lib/*.so
 %dir %{mpidir}/include
 %{mpidir}/include/*
@@ -465,7 +470,7 @@ rm -rf %{buildroot}
 %dir %{_mandir}/%{namepsmarch}
 %dir %{_mandir}/%{namepsmarch}/man?
 %{_mandir}/%{namepsmarch}/man1/*
-%{_sysconfdir}/modulefiles/*
+%{_sysconfdir}/modulefiles/%{namepsmarch}
 %dir %{python_sitearch}/*
 %dir %{_fmoddir}/*
 %exclude %{mpipsmdir}/lib/*.a
@@ -478,7 +483,7 @@ rm -rf %{buildroot}
 %files psm-devel
 %defattr(-, root, root, -)
 %{_mandir}/%{namepsmarch}/man[34]/*
-%{_sysconfdir}/rpm/*
+%{_sysconfdir}/rpm/macros.%{namepsmarch}
 %{mpipsmdir}/lib/*.so
 %dir %{mpipsmdir}/include
 %{mpipsmdir}/include/*
@@ -492,6 +497,18 @@ rm -rf %{buildroot}
 %endif
 
 %changelog
+* Wed Feb 15 2012 Jay Fenlason <fenlason@redhat.com> 1.2.0-0.3563.rc1.5.el6
+- Include psm config files only in the -psm packages.  Do not include
+  non-psm config files in the -psm packages.
+  Resolves: rhbz725864
+
+* Fri Aug 19 2011 Jay Fenlason <fenlason@redhat.com> 1.2.0-0.3563.rc1.4.el6
+- -psm-devel and -psm-static need to depend on the psm variants, not the
+  base packages.
+- Fix up the build to not use .{non-,}psm directories
+- Fix up the -psm subpackage descriptions.
+  Related: rhbz725016
+
 * Fri Aug 19 2011 Jay Fenlason <fenlason@redhat.com> 1.2.0-0.3563.rc1.3.el6
 - Fix the ExclusiveArch and add an i686 stanza to build for i686
   Related: rhbz725016
