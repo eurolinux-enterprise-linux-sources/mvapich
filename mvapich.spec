@@ -24,7 +24,7 @@
 Summary: MPI implementation over Infiniband RDMA-enabled interconnect
 Name: mvapich
 Version: 1.2.0
-Release: 0.3563.rc1.5%{?dist}
+Release: 0.3563.rc1.6%{?dist}
 License: BSD
 Group: Development/Libraries
 Source0: mvapich-1.2rc1.tar.gz
@@ -33,6 +33,7 @@ Source2: mvapich.module.in
 Source3: macros.mvapich-psm
 Patch0: mvapich-1.0.1-limit.patch
 Patch1: mvapich-1.2rc1-build.patch
+Patch2: mvapich-sin_family.patch
 URL: http://mvapich.cse.ohio-state.edu/
 Requires: %{name}-common = %{version}-%{release}
 BuildRequires: libibverbs-devel >= 1.1.3, libibumad-devel, perl, autoconf
@@ -123,6 +124,7 @@ QLogic's InfiniPath PSM library for transport.
 %setup -q -n %{name}-1.2rc1
 %patch0 -p1 -b .limit
 %patch1 -p1 -b .build
+%patch2 -p1 -b .sin_family
 # We need to do two compiles: one for psm, and one for regular.
 %ifarch x86_64
 mkdir .psm
@@ -497,6 +499,10 @@ rm -rf %{buildroot}
 %endif
 
 %changelog
+* Mon Jan 18 2016 Michal Schmidt <mschmidt@redhat.com> 1.2.0-0.3563.rc1.6.el6
+- Initialize sin_family members before bind() calls.
+  Resolves: rhbz1016214
+
 * Wed Feb 15 2012 Jay Fenlason <fenlason@redhat.com> 1.2.0-0.3563.rc1.5.el6
 - Include psm config files only in the -psm packages.  Do not include
   non-psm config files in the -psm packages.

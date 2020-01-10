@@ -1,0 +1,112 @@
+--- mvapich-1.2rc1/mpid/ch_psm/process/#mpirun_rsh.c~	2013-02-20 15:37:20.000000000 -0500
++++ mvapich-1.2rc1/mpid/ch_psm/process/mpirun_rsh.c	2013-02-20 15:37:20.000000000 -0500
+@@ -436,6 +436,7 @@
+ 	perror("socket");
+ 	exit(EXIT_FAILURE);
+     }
++    sockaddr.sin_family = AF_INET;
+     sockaddr.sin_addr.s_addr = INADDR_ANY;
+     sockaddr.sin_port = 0;
+     if (bind(s, (struct sockaddr *) &sockaddr, sockaddr_len) < 0) {
+--- mvapich-1.2rc1/mpid/ch_psm/process/#mpispawn.c~	2013-02-20 15:38:35.000000000 -0500
++++ mvapich-1.2rc1/mpid/ch_psm/process/mpispawn.c	2013-02-20 16:42:57.000000000 -0500
+@@ -378,6 +378,7 @@
+ 	exit(EXIT_FAILURE);
+     }
+ 
++    mc_sockaddr.sin_family = AF_INET;
+     mc_sockaddr.sin_addr.s_addr = INADDR_ANY;
+     mc_sockaddr.sin_port = 0;
+ 
+@@ -459,6 +460,7 @@
+         perror ("socket");
+         exit (EXIT_FAILURE);
+     }
++    c_sockaddr.sin_family = AF_INET;
+     c_sockaddr.sin_addr.s_addr = INADDR_ANY;
+     c_sockaddr.sin_port = 0;
+ 
+--- mvapich-1.2rc1/mpid/ch_gen2/process/#mpirun_rsh.c~	2013-02-20 16:36:11.000000000 -0500
++++ mvapich-1.2rc1/mpid/ch_gen2/process/mpirun_rsh.c	2013-02-20 16:36:11.000000000 -0500
+@@ -487,6 +487,7 @@
+ 	perror("socket");
+ 	exit(EXIT_FAILURE);
+     }
++    sockaddr.sin_family = AF_INET;
+     sockaddr.sin_addr.s_addr = INADDR_ANY;
+     sockaddr.sin_port = 0;
+     if (bind(s, (struct sockaddr *) &sockaddr, sockaddr_len) < 0) {
+--- mvapich-1.2rc1/mpid/ch_gen2/process/#mpispawn.c~	2013-02-20 16:41:38.000000000 -0500
++++ mvapich-1.2rc1/mpid/ch_gen2/process/mpispawn.c	2013-02-20 16:41:38.000000000 -0500
+@@ -379,6 +379,7 @@
+ 	exit(EXIT_FAILURE);
+     }
+ 
++    mc_sockaddr.sin_family = AF_INET;
+     mc_sockaddr.sin_addr.s_addr = INADDR_ANY;
+     mc_sockaddr.sin_port = 0;
+ 
+@@ -460,6 +461,7 @@
+         perror ("socket");
+         exit (EXIT_FAILURE);
+     }
++    c_sockaddr.sin_family = AF_INET;
+     c_sockaddr.sin_addr.s_addr = INADDR_ANY;
+     c_sockaddr.sin_port = 0;
+ 
+--- mvapich-1.2rc1/mpid/ch_hybrid/process/#mpirun_rsh.c~	2013-02-20 16:37:03.000000000 -0500
++++ mvapich-1.2rc1/mpid/ch_hybrid/process/mpirun_rsh.c	2013-02-20 16:37:03.000000000 -0500
+@@ -482,6 +482,7 @@
+ 	perror("socket");
+ 	exit(EXIT_FAILURE);
+     }
++    sockaddr.sin_family = AF_INET;
+     sockaddr.sin_addr.s_addr = INADDR_ANY;
+     sockaddr.sin_port = 0;
+     if (bind(s, (struct sockaddr *) &sockaddr, sockaddr_len) < 0) {
+--- mvapich-1.2rc1/mpid/ch_hybrid/process/#mpispawn.c~	2013-02-20 16:42:02.000000000 -0500
++++ mvapich-1.2rc1/mpid/ch_hybrid/process/mpispawn.c	2013-02-20 16:42:02.000000000 -0500
+@@ -378,6 +378,7 @@
+ 	exit(EXIT_FAILURE);
+     }
+ 
++    mc_sockaddr.sin_family = AF_INET;
+     mc_sockaddr.sin_addr.s_addr = INADDR_ANY;
+     mc_sockaddr.sin_port = 0;
+ 
+@@ -459,6 +460,7 @@
+         perror ("socket");
+         exit (EXIT_FAILURE);
+     }
++    c_sockaddr.sin_family = AF_INET;
+     c_sockaddr.sin_addr.s_addr = INADDR_ANY;
+     c_sockaddr.sin_port = 0;
+ 
+--- mvapich-1.2rc1/mpid/ch_smp/process/#mpirun_rsh.c~	2013-02-20 16:37:41.000000000 -0500
++++ mvapich-1.2rc1/mpid/ch_smp/process/mpirun_rsh.c	2013-02-20 16:37:41.000000000 -0500
+@@ -483,6 +483,7 @@
+ 	perror("socket");
+ 	exit(EXIT_FAILURE);
+     }
++    sockaddr.sin_family = AF_INET;
+     sockaddr.sin_addr.s_addr = INADDR_ANY;
+     sockaddr.sin_port = 0;
+     if (bind(s, (struct sockaddr *) &sockaddr, sockaddr_len) < 0) {
+--- mvapich-1.2rc1/mpid/ch_smp/process/#mpispawn.c~	2013-02-20 16:42:28.000000000 -0500
++++ mvapich-1.2rc1/mpid/ch_smp/process/mpispawn.c	2013-02-20 16:42:28.000000000 -0500
+@@ -378,6 +378,7 @@
+ 	exit(EXIT_FAILURE);
+     }
+ 
++    mc_sockaddr.sin_family = AF_INET;
+     mc_sockaddr.sin_addr.s_addr = INADDR_ANY;
+     mc_sockaddr.sin_port = 0;
+ 
+@@ -459,6 +460,7 @@
+         perror ("socket");
+         exit (EXIT_FAILURE);
+     }
++    c_sockaddr.sin_family = AF_INET;
+     c_sockaddr.sin_addr.s_addr = INADDR_ANY;
+     c_sockaddr.sin_port = 0;
+ 
