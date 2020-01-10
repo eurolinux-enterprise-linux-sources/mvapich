@@ -1,0 +1,22 @@
+--- mvapich-1.2rc1/examples/test/pt2pt/#Makefile.in~	2011-07-27 14:39:51.000000000 -0400
++++ mvapich-1.2rc1/examples/test/pt2pt/Makefile.in	2011-07-27 14:39:52.000000000 -0400
+@@ -25,7 +25,7 @@ CFLAGS  = @CFLAGS@ @DEFS@ $(OPTFLAGS) 
+ CCFLAGS = $(CFLAGS)
+ FFLAGS = $(OPTFLAGS) @FFLAGS@
+ # Use LIBS to add any special libraries for C programs
+-LIBS = @LIB_PATH@ @LIB_LIST@
++LIBS = @LIB_PATH@ @LIB_LIST@ -ldl
+ # Use FLIBS to add any special libraries for Fortran programs
+ FLIBS = @FLIB_PATH@ @LIB_LIST@
+ EXECS = overtake sendrecv isndrcv third fourth fifth sixth hvectest \
+--- mvapich-1.2rc1/mpe/contrib/test/#Makefile.in~	2011-08-04 14:09:24.000000000 -0400
++++ mvapich-1.2rc1/mpe/contrib/test/Makefile.in	2011-08-04 14:09:25.000000000 -0400
+@@ -10,7 +10,7 @@ MPI_FLINKER   = $(MPI_F77)
+ #
+ DEBUG_LIBS    = @DEBUG_LIBS@
+ MPI_INC       = @MPI_INC@
+-MPI_LIBS      = @MPI_LIBS@
++MPI_LIBS      = @MPI_LIBS@ -ldl
+ MPE_CFLAGS    = @MPE_CFLAGS@
+ MPE_FFLAGS    = @MPE_FFLAGS@
+ MPE_INCDIR    = @includebuild_dir@

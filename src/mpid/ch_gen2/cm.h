@@ -1,5 +1,5 @@
 
-/* Copyright (c) 2002-2009, The Ohio State University. All rights
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
  * reserved.
  *
  * This file is part of the MVAPICH software package developed by the
@@ -31,6 +31,12 @@
 #include <infiniband/verbs.h>
 #include <errno.h>
 #include <assert.h>
+
+typedef union {
+    uint16_t      lid;  /* Native IB */
+    union ibv_gid gid;  /* RDMA over Eth */
+} lgid; /* Lid-Gid*/
+
 
 typedef volatile enum MPICM_conn_state {
     MPICM_IB_NONE = 1,
@@ -68,7 +74,7 @@ int MPICM_Init_UD(uint32_t *ud_qpn);
 MPICM_Connect_UD
 Provide connect information to UD
 */
-int MPICM_Connect_UD(uint32_t *qpns, uint16_t *lids);
+int MPICM_Connect_UD(uint32_t *qpns, lgid *lgids);
 
 /*
 MPICM_Connect_req

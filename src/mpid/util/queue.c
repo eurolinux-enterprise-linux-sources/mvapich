@@ -513,7 +513,7 @@ int MPID_AnyRecvPosted() {
 }
 
 #ifdef CH_GEN2
-int MPID_nr_search_rndv_start( src, tag, context_id, buffer_address, sn, rkey)
+int MPID_nfr_search_rndv_start( src, tag, context_id, buffer_address, sn, rkey)
     register int src, tag;
     register int context_id;
     void*        buffer_address;

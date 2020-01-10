@@ -1,21 +1,30 @@
-/* Copyright (c) 2008, Mellanox Technologis. All rights reserved. */
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
+ * reserved.
+ *
+ * This file is part of the MVAPICH software package developed by the
+ * team members of The Ohio State University's Network-Based Computing
+ * Laboratory (NBCL), headed by Professor Dhabaleswar K. (DK) Panda.
+ *
+ * For detailed copyright and licensing information, please refer to the
+ * copyright file COPYRIGHT_MVAPICH in the top level MPICH directory.
+ *
+ */
+/* Copyright (c) 2008, Mellanox Technologies. All rights reserved. */
 
 #include "mpid.h"
 #include "ibverbs_header.h"
 #include "viadev.h"
 #include "viapriv.h"
 #include "cm_user.h"
-#include "nr.h"
+#include "nfr.h"
 
-uint8_t NR_ENABLED = 0;
+int nfr_max_failures = NFR_MAX_FAILURES;
+volatile int nfr_fatal_error = 0; /* 0 - no fatal, 1 - fatal happend. The fatal may be enabled only in async thread*/
+int nfr_timeout_on_error = NFR_DEFAULT_TIMEOUT_ON_ERROR;
+int nfr_timeout_on_restart = NFR_DEFAULT_TIMEOUT_ON_RESTART;
 
-int nr_max_failures = NR_MAX_FAILURES;
-volatile int nr_fatal_error = 0; /* 0 - no fatal, 1 - fatal happend. The fatal may be enabled only in async thread*/
-int nr_timeout_on_error = NR_DEFAULT_TIMEOUT_ON_ERROR;
-int nr_timeout_on_restart = NR_DEFAULT_TIMEOUT_ON_RESTART;
-
-int nr_num_of_bad_connections = 0;
-int nr_wait_for_replies = 0;
+int nfr_num_of_bad_connections = 0;
+int nfr_wait_for_replies = 0;
 
 /*********************************************************************/
 /* Local function. Used only in this file                            */
@@ -23,30 +32,30 @@ int nr_wait_for_replies = 0;
 
 static void send_reconnect_req(viadev_connection_t *c)
 {
-    V_PRINT(DEBUG03, "NR: Send reconnect request to [%d]\n", c->global_rank);
+    V_PRINT(DEBUG03, "NFR: Send reconnect request to [%d]\n", c->global_rank);
     vbuf *v = get_vbuf();
     viadev_packet_noop *p = (viadev_packet_noop *) VBUF_BUFFER_START(v);
-    PACKET_SET_HEADER_NR_REQ(p, c);
+    PACKET_SET_HEADER_NFR_REQ(p, c);
     vbuf_init_send(v, sizeof(viadev_packet_header));
     viadev_post_send(c, v);
 }
 
 static void send_reconnect_rep(viadev_connection_t *c)
 {
-    V_PRINT(DEBUG03, "NR: Send reconnect reply to [%d]\n", c->global_rank);
+    V_PRINT(DEBUG03, "NFR: Send reconnect reply to [%d]\n", c->global_rank);
     vbuf *v = get_vbuf();
     viadev_packet_noop *p = (viadev_packet_noop *) VBUF_BUFFER_START(v);
-    PACKET_SET_HEADER_NR_REP(p, c);
+    PACKET_SET_HEADER_NFR_REP(p, c);
     vbuf_init_send(v, sizeof(viadev_packet_header));
     viadev_post_send(c, v);
 }
 
 static void send_reconnect_fin(viadev_connection_t *c)
 {
-    V_PRINT(DEBUG03, "NR: Send reconnect fin to [%d]\n", c->global_rank);
+    V_PRINT(DEBUG03, "NFR: Send reconnect fin to [%d]\n", c->global_rank);
     vbuf *v = get_vbuf();
     viadev_packet_noop *p = (viadev_packet_noop *) VBUF_BUFFER_START(v);
-    PACKET_SET_HEADER_NR_FIN(p, c);
+    PACKET_SET_HEADER_NFR_FIN(p, c);
     vbuf_init_send(v, sizeof(viadev_packet_header));
     viadev_post_send(c, v);
 }
@@ -155,7 +164,7 @@ static void re_post_send(viadev_connection_t * c, vbuf * v)
     }
 
     /* reset ack status in the packet */
-    NR_SET_ACK(p, c);
+    NFR_SET_ACK(p, c);
     v->ib_completed = 0; /* must reset ib completion status */
 
     if(viadev_use_srq) {
@@ -227,7 +236,7 @@ static void re_post_send(viadev_connection_t * c, vbuf * v)
         } else {
             /* must delay the send until more credits arrive. */
 
-            D_PRINT("NR RE post_send QUEUED: [vi %d][%d %d %d][vbuf %p] %s\n",
+            D_PRINT("NFR RE post_send QUEUED: [vi %d][%d %d %d][vbuf %p] %s\n",
                     c->global_rank, c->remote_credit, c->local_credit,
                     c->remote_cc, v, viadev_packet_to_string(c->vi, v));
         }
@@ -255,7 +264,7 @@ static void drop_or_resend_rndv_start(viadev_connection_t *c, vbuf *v)
 #else
         RELEASE_VBUF(v);
 #endif
-        V_PRINT(DEBUG01, "NR drop and send: Released packet %s[%d][%s][%d] \n",
+        V_PRINT(DEBUG01, "NFR drop and send: Released packet %s[%d][%s][%d] \n",
                 type2name(VBUF_TYPE(v)), VBUF_TYPE(v), padding2name(v->padding), ((viadev_packet_header*)v->buffer)->id);
     } else if (VIADEV_PACKET_RENDEZVOUS_START == VBUF_TYPE(v) && 
              VIADEV_PROTOCOL_R3 == GET_RNDV_PROTOCOL(v)){
@@ -276,7 +285,7 @@ static void drop_or_resend_rndv_start(viadev_connection_t *c, vbuf *v)
         /* resend randevouze start */ 
         re_post_send(c, v);
 
-        V_PRINT(DEBUG01, "NR drop and send: resend randevoze %s[%d][%s][%d] \n",
+        V_PRINT(DEBUG01, "NFR drop and send: resend randevoze %s[%d][%s][%d] \n",
                 type2name(VBUF_TYPE(v)), VBUF_TYPE(v), padding2name(v->padding), ((viadev_packet_header*)v->buffer)->id);
     }
 }
@@ -295,20 +304,20 @@ static void send_lost_data(viadev_connection_t *c, packet_sequence_t last_recv)
     int id_is_last = 0;
     ack_list *list = &c->waiting_for_ack;
 
-    V_PRINT(DEBUG03, "NR: Entering send_lost_data\n");
-    V_PRINT(DEBUG03, "NR: %d [next-%d,last-%d] packets should be retrassmited\n",
+    V_PRINT(DEBUG03, "NFR: Entering send_lost_data\n");
+    V_PRINT(DEBUG03, "NFR: %d [next-%d,last-%d] packets should be retrassmited\n",
             c->next_packet_tosend - last_recv, c->next_packet_tosend, last_recv);
 
     if (WAITING_LIST_IS_EMPTY(list)) {
         /* this case mabe only if list fin Fin packet were lost */
-        V_PRINT(DEBUG03, "NR: List is EMPTY next %d, last %d", c->next_packet_tosend, last_recv);
+        V_PRINT(DEBUG03, "NFR: List is EMPTY next %d, last %d", c->next_packet_tosend, last_recv);
         V_PRINT(DEBUG03, " reseting next %d, to %d\n", c->next_packet_tosend, last_recv);
         c->next_packet_tosend = last_recv; /* reset the next packet to send */
         goto lost_done;
     }
 
     if ( GET_ID(WAITING_LIST_GET_FIRST(list)) > last_recv) {
-        V_PRINT(DEBUG03, "NR: First is bigger !\n");
+        V_PRINT(DEBUG03, "NFR: First is bigger !\n");
         first_is_bigger = 1;
     }
     
@@ -325,7 +334,7 @@ static void send_lost_data(viadev_connection_t *c, packet_sequence_t last_recv)
          * list START-> 998 999 0 1 2 3 4 5 6 <-END
          */
 
-        V_PRINT(DEBUG03, "NR:Decide what to do with vbuf, id[%d] last_recv[%d] netxt_to_send[%d] len[%d]\n",
+        V_PRINT(DEBUG03, "NFR:Decide what to do with vbuf, id[%d] last_recv[%d] netxt_to_send[%d] len[%d]\n",
                 id, last_recv, c->next_packet_tosend, WAITING_LIST_LEN(list));
         if ( 1 == first_is_bigger) {
             if ( id > last_recv) {
@@ -370,25 +379,25 @@ lost_done:
         send_reconnect_fin(c);
     }
 
-    V_PRINT(DEBUG03, "NR: Exit send_lost_data\n");
+    V_PRINT(DEBUG03, "NFR: Exit send_lost_data\n");
 }
 
 static void reconnect(viadev_connection_t *c)
 {
     int peer = c->global_rank;
     /* reset MPI connection and CM connection status for CM reconnect */
-    V_PRINT(DEBUG03, "NR: increasing nr_num_of_bad_connections st %d num %d\n",
-            c->qp_status, nr_num_of_bad_connections + 1);
+    V_PRINT(DEBUG03, "NFR: increasing nfr_num_of_bad_connections st %d num %d\n",
+            c->qp_status, nfr_num_of_bad_connections + 1);
     c->was_connected++;
-    if (c->was_connected > nr_max_failures) {
+    if (c->was_connected > nfr_max_failures) {
         error_abort_all(GEN_EXIT_ERR, "\nNumber of network failures between ranks %d[%s] and %d exceed maximal limit - %d\n"
                         "Please use ibdiagnet in order to debug your network issue\n"
                         "Stoping MPI process.........\n"
-                        , viadev.me, viadev.my_name, c->global_rank, nr_max_failures);
+                        , viadev.me, viadev.my_name, c->global_rank, nfr_max_failures);
     }
     c->qp_status = QP_DOWN;
     /* Increase global counter of bad connections */
-    nr_num_of_bad_connections++;
+    nfr_num_of_bad_connections++;
     if (MPICM_Reconnect_req(peer) < 0) {
         error_abort_all(GEN_EXIT_ERR, "Failed to send reconnect request");
     }
@@ -409,7 +418,7 @@ static int process_bad_completion(struct ibv_wc *sc)
     v = (vbuf *)vbuf_addr;
     i = v->grank;
     c = &(viadev.connections[i]);
-    V_PRINT(DEBUG03, "NR: Processing completion with error rank[%d], addr[%p]\n", i, v);
+    V_PRINT(DEBUG03, "NFR: Processing completion with error rank[%d], addr[%p]\n", i, v);
 
     if ( IBV_WC_REM_ACCESS_ERR == sc->status) {
         while (1) {
@@ -450,7 +459,7 @@ static int poll4data()
 
         /* Need to check if it is a completion with error */
         if (sc.status != IBV_WC_SUCCESS) {
-            NR_PRINT("[%s:%d] Network Recovery: Got another completion with error %s, "
+            NFR_PRINT("[%s:%d] Network Recovery: Got another completion with error %s, "
                     "code=%d, dest rank=%d - continue Network Recovery process\n",
                     viadev.my_name, viadev.me,
                     wc_code_to_str(sc.status), sc.status,
@@ -526,7 +535,7 @@ static void reregister_lists()
                     dreg_entry *dreg_entry = NULL;
                     dreg_entry = dreg_register(packet->buffer_address, packet->len, DREG_ACL_READ);
                     if (NULL == dreg_entry) {
-                        error_abort_all(IBV_RETURN_ERR,"NR failed re-register memory during fatal recovery");
+                        error_abort_all(IBV_RETURN_ERR,"NFR failed re-register memory during fatal recovery");
                     }
                     packet->memhandle_rkey = dreg_entry->memhandle->rkey;
                     shandle->dreg_entry = dreg_entry;
@@ -600,11 +609,11 @@ static void stop_hca()
     int i;
     viadev_connection_t *c;
 
-    NR_PRINT("- Stoping HCA\n");
+    NFR_PRINT("- Stoping HCA\n");
 #ifdef ADAPTIVE_RDMA_FAST_PATH
 
     if (viadev_num_rdma_buffer) {
-        NR_PRINT("- Releaseing Eager RDMA buffers\n");
+        NFR_PRINT("- Releaseing Eager RDMA buffers\n");
         /* unpin rdma buffers */
         for (i = 0; i < viadev.np; i++) {
             c = &viadev.connections[i];
@@ -632,11 +641,15 @@ static void stop_hca()
     }
 
     if (viadev_use_on_demand) {
-        NR_PRINT("- Closing all active QPs\n");
+        NFR_PRINT("- Closing all active QPs\n");
         for (i = 0; i < viadev.np; i++) {
             c = &viadev.connections[i];
 
-            if (viadev.me == i || MPID_Is_local(i)) {
+            if (viadev.me == i 
+#ifdef _SMP_
+                    || MPID_Is_local(i)
+#endif
+                    ) {
                 continue;
             }
 
@@ -651,7 +664,7 @@ static void stop_hca()
             }
         }
 
-        NR_PRINT("- Closing UD CM\n");
+        NFR_PRINT("- Closing UD CM\n");
         if (MPICM_Finalize_UD() < 0) {
             error_abort_all(IBV_RETURN_ERR, "Failed to release UD resources");
         }
@@ -666,7 +679,7 @@ static void stop_hca()
     }
 
     /* Cancel thread if active */
-    NR_PRINT("- Stoping async thread\n");
+    NFR_PRINT("- Stoping async thread\n");
     if(pthread_cancel(viadev.async_thread)) {
         error_abort_all(GEN_ASSERT_ERR,"Failed to cancel async thread\n");
     }
@@ -680,14 +693,14 @@ static void stop_hca()
     if(viadev_use_srq) {
         /* pthread_cond_destroy(&viadev.srq_post_cond); */
         /* pthread_mutex_destroy(&viadev.srq_post_mutex_lock);*/
-        NR_PRINT("- Destroy SRQ\n");
+        NFR_PRINT("- Destroy SRQ\n");
         if (ibv_destroy_srq(viadev.srq_hndl)) {
             error_abort_all(IBV_RETURN_ERR, "Couldn't destroy SRQ\n");
         }
     }
 
     {
-        NR_PRINT("- Destroy CQ\n");
+        NFR_PRINT("- Destroy CQ\n");
         int ret = ibv_destroy_cq(viadev.cq_hndl);
         if (ret) {
             perror("ibv_destroy_cq");
@@ -704,27 +717,27 @@ static void stop_hca()
         }
     }
     /* deregister vbufs */
-    NR_PRINT("- Deallocate VBUFs\n");
+    NFR_PRINT("- Deallocate VBUFs\n");
     deallocate_vbufs();
 
     /* unregister all user buffer registration */
     deregister_lists();
-    NR_PRINT("- Deallocate RDMA cache\n");
+    NFR_PRINT("- Deallocate RDMA cache\n");
     while (dreg_evict());
 
-    NR_PRINT("- Close PD\n");
+    NFR_PRINT("- Close PD\n");
     if (ibv_dealloc_pd(viadev.ptag)) {
         error_abort_all(IBV_RETURN_ERR, "could not dealloc PD");
     }
 
-    NR_PRINT("- Close HCA\n");
+    NFR_PRINT("- Close HCA\n");
     /* to release all resources */
     if (ibv_close_device(viadev.context)) {
         error_abort_all(IBV_RETURN_ERR, "could not close device");
     }
 
     viadev.context = NULL;
-    NR_PRINT("- HCA was STOPED!\n");
+    NFR_PRINT("- HCA was STOPED!\n");
 }
 
 static void start_hca()
@@ -733,14 +746,14 @@ static void start_hca()
     struct ibv_port_attr port_attr;
     struct timeval now, start;
 
-    NR_PRINT("- Starting HCA\n");
+    NFR_PRINT("- Starting HCA\n");
 
     if(ibv_query_device(viadev.context, &viadev.dev_attr)) {
         error_abort_all(GEN_EXIT_ERR,
                 "Error getting HCA attributes\n");
     }   
 
-    NR_PRINT("- Allocating PD\n");
+    NFR_PRINT("- Allocating PD\n");
     viadev.ptag = ibv_alloc_pd(viadev.context);
 
     if(NULL == viadev.ptag) {
@@ -749,7 +762,7 @@ static void start_hca()
 
     gettimeofday(&start, NULL);
 
-    NR_PRINT("- Reactivating port\n");
+    NFR_PRINT("- Reactivating port\n");
     do {
         ibv_query_port(viadev.context,
                        viadev_default_port,
@@ -757,27 +770,49 @@ static void start_hca()
         gettimeofday(&now, NULL);
     } while (IBV_PORT_ACTIVE != port_attr.state &&
              (((now.tv_sec - start.tv_sec) * 1000000 +
-               (now.tv_usec - start.tv_usec)) < nr_timeout_on_restart * 1000000));
+               (now.tv_usec - start.tv_usec)) < nfr_timeout_on_restart * 1000000));
 
     if (IBV_PORT_ACTIVE != port_attr.state) {
         error_abort_all(GEN_EXIT_ERR, 
                         "Network Recovery: The port %d changed status",viadev_default_port);
     }
 
+#ifdef TRANSPORT_RDMAOE_AVAIL
+    if (IBV_LINK_LAYER_ETHERNET == port_attr.link_layer) {
+        /* Enable eth over ib */
+        viadev_eth_over_ib = 1;
+        /* get guid */
+        if (ibv_query_gid(viadev.context, viadev_default_port, 0, &viadev.my_hca_id.gid)){
+            error_abort_all(GEN_EXIT_ERR, 
+                    "Failed to query MAC on port %d",viadev_default_port);
+        }
+    } else
+#else
+        if (viadev_eth_over_ib) {
+            /* get guid */
+            if (ibv_query_gid(viadev.context, viadev_default_port, 0, &viadev.my_hca_id.gid)){
+                error_abort_all(GEN_EXIT_ERR, 
+                        "Failed to query MAC on port %d",viadev_default_port);
+            }
+        } else
+#endif
+        {
+            /* Disable eth over ib */
+            viadev.my_hca_id.lid = port_attr.lid;
+        }
     /* update lids */
-    viadev.my_hca_lid = port_attr.lid;
-    viadev.lid_table[viadev.me] = viadev.my_hca_lid;
+    viadev.lgid_table[viadev.me] = viadev.my_hca_id;
     viadev.port_attr = port_attr;
     viadev.lmc = port_attr.lmc;
 
-    NR_PRINT("- Create CQ\n");
+    NFR_PRINT("- Create CQ\n");
     viadev.cq_hndl = create_cq(NULL);
 
-    NR_PRINT("- Re-register VBUFs\n");
+    NFR_PRINT("- Re-register VBUFs\n");
     re_register_vbufs();
 
     /* Re-Register all vbufs that were registered till now */
-    NR_PRINT("- Create SRQ\n");
+    NFR_PRINT("- Create SRQ\n");
     if(viadev_use_srq) {
         viadev.srq_hndl = create_srq();
 
@@ -802,7 +837,7 @@ static void start_hca()
     /* Start the async thread which watches
      * for SRQ limit and other aysnchronous events */
 
-    NR_PRINT("- Create async thread\n");
+    NFR_PRINT("- Create async thread\n");
     pthread_create(&viadev.async_thread, NULL,
 	    (void *) async_thread, (void *) viadev.context);
 
@@ -840,18 +875,18 @@ static void start_hca()
     cm_ib_qp_attr.rc_qp_init_attr.cap.max_inline_data = viadev_max_inline_size;
     cm_ib_qp_attr.rc_qp_init_attr.qp_type = IBV_QPT_RC;
 
-    NR_PRINT("- Restart UD CM\n");
+    NFR_PRINT("- Restart UD CM\n");
     
     MPICM_Init_lock();
     /* Restart UDCM */
     if(MPICM_Init_UD(&(viadev.ud_qpn_table[viadev.me]))) {
         error_abort_all(GEN_EXIT_ERR, "MPICM_Init_UD");
     }
-    if (MPICM_Connect_UD(viadev.ud_qpn_table, viadev.lid_table)) {
+    if (MPICM_Connect_UD(viadev.ud_qpn_table, viadev.lgid_table)) {
         error_abort_all(GEN_EXIT_ERR, "MPICM_Connect_UD");
     }
 
-    NR_PRINT("- Reregister memory\n");
+    NFR_PRINT("- Reregister memory\n");
     reregister_lists();
 }
 
@@ -932,54 +967,54 @@ char* padding2name(int name)
 }
 
 /* Scan all connections and print connections with pending messages and */
-void nr_finalize()
+void nfr_finalize()
 {
     int i;
     for (i = 0; i < viadev.np; i++)
     {
         if (viadev.me == i) {
             if (WAITING_LIST_LEN((&viadev.connections[i].waiting_for_ack)))
-                NR_PRINT("NR: Error, Connection %d waiting list len [%d]\n",
+                NFR_PRINT("NFR: Error, Connection %d waiting list len [%d]\n",
                         i, WAITING_LIST_LEN((&viadev.connections[i].waiting_for_ack)));
             if (viadev.connections[i].pending_acks)
-                NR_PRINT("NR: Error, Connection %d found [%d] pending acks\n",
+                NFR_PRINT("NFR: Error, Connection %d found [%d] pending acks\n",
                         i, viadev.connections[i].waiting_for_ack);
         }
     }
 }
 
-void nr_init()
+void nfr_init()
 {
     char *value;
-    if (NR_ENABLED) {
+    if (viadev_use_nfr) {
 
-        nr_fatal_error = NO_FATAL;
+        nfr_fatal_error = NO_FATAL;
 
         if (VIADEV_PROTOCOL_RGET != viadev_rndv_protocol &&
                 VIADEV_PROTOCOL_R3 != viadev_rndv_protocol) {
             if (0 == viadev.me)
-                NR_PRINT("WARNING: The NR feature supports only RGET and R3 protocols, fallback to RGET[%d]\n"
+                NFR_PRINT("WARNING: The NFR feature supports only RGET and R3 protocols, fallback to RGET[%d]\n"
                         , viadev_rndv_protocol);
             viadev_rndv_protocol = VIADEV_PROTOCOL_RGET;
         }
-        /* Make sure that we enable on_demand connections in NR mode */
+        /* Make sure that we enable on_demand connections in NFR mode */
         viadev_on_demand_threshold = 0;
         viadev_use_on_demand = 1;
         /* will be used in feature */
-        if ((value = getenv("VIADEV_NR_MAX_FAILURES")) != NULL) {
-            nr_max_failures = atoi(value);
-            if (nr_max_failures < 0)
-                nr_max_failures = NR_MAX_FAILURES;
+        if ((value = getenv("VIADEV_NFR_MAX_FAILURES")) != NULL) {
+            nfr_max_failures = atoi(value);
+            if (nfr_max_failures < 0)
+                nfr_max_failures = NFR_MAX_FAILURES;
         }
-        if ((value = getenv("VIADEV_NR_TIMEOUT_ON_ERROR")) != NULL) {
-            nr_timeout_on_error = atoi(value);
-            if (nr_timeout_on_error < 0)
-                nr_timeout_on_error = NR_DEFAULT_TIMEOUT_ON_ERROR;
+        if ((value = getenv("VIADEV_NFR_TIMEOUT_ON_ERROR")) != NULL) {
+            nfr_timeout_on_error = atoi(value);
+            if (nfr_timeout_on_error < 0)
+                nfr_timeout_on_error = NFR_DEFAULT_TIMEOUT_ON_ERROR;
         }
     }
 }
 
-void nr_process_retransmit (viadev_connection_t *c, viadev_packet_header *header)
+void nfr_process_retransmit (viadev_connection_t *c, viadev_packet_header *header)
 {
     viadev_packet_header *lh;
     viadev_packet_rendezvous_start* h = 
@@ -988,15 +1023,15 @@ void nr_process_retransmit (viadev_connection_t *c, viadev_packet_header *header
     MPIR_RHANDLE *rhandle = NULL;
 
     /* we are in debug mode got old messages */
-    V_PRINT(DEBUG03, "We are in nr recovery mode[%d][%s][%d]\n", c->progress_recov_mode,
+    V_PRINT(DEBUG03, "We are in nfr recovery mode[%d][%s][%d]\n", c->progress_recov_mode,
             type2name(header->type), header->id);
     /* Is it in unexpected list  ? */
     if ( MPI_SUCCESS == 
-            MPID_nr_search_rndv_start(h->envelope.src_lrank, h->envelope.tag, 
+            MPID_nfr_search_rndv_start(h->envelope.src_lrank, h->envelope.tag, 
                                       h->envelope.context, h->buffer_address, 
                                       header->id, h->memhandle_rkey)) {
         /* the randevouze request is still waiting on unexpected list */
-        V_PRINT(DEBUG03, "NR: Message was found in Unexpected list\n");
+        V_PRINT(DEBUG03, "NFR: Message was found in Unexpected list\n");
         return;
     }
     /* Is it in rdma failed list ? */
@@ -1012,7 +1047,7 @@ void nr_process_retransmit (viadev_connection_t *c, viadev_packet_header *header
                 /* it did not finish RDMA read stage */
                 rhandle->remote_memhandle_rkey = h->memhandle_rkey;
                 viadev_recv_rget(rhandle);
-                V_PRINT(DEBUG03, "NR: Message was found in rndv_inprocess list, the READ was not finished\n");
+                V_PRINT(DEBUG03, "NFR: Message was found in rndv_inprocess list, the READ was not finished\n");
                 return;
             } else {
                 /* the message was send but we did not got completion
@@ -1029,7 +1064,7 @@ void nr_process_retransmit (viadev_connection_t *c, viadev_packet_header *header
 #else
                 release_vbuf(v);
 #endif
-                V_PRINT(DEBUG03, "NR: Message was found in rndv_inprocess list, the FIN was not completed\n");
+                V_PRINT(DEBUG03, "NFR: Message was found in rndv_inprocess list, the FIN was not completed\n");
                 viadev_rget_finish(rhandle);
 
                 return;
@@ -1054,15 +1089,15 @@ void nr_process_retransmit (viadev_connection_t *c, viadev_packet_header *header
     viadev_rget_finish(rhandle);
     /* release dummy rhandle */
     /* MPID_RecvFree(rhandle); we will release it later */
-    V_PRINT(DEBUG03, "NR: Message was completed, resending fin %d\n", l->size);
+    V_PRINT(DEBUG03, "NFR: Message was completed, resending fin %d\n", l->size);
     return;
 
 }
 
-void nr_incoming_nr_req (viadev_packet_header *h, viadev_connection_t *c)
+void nfr_incoming_nfr_req (viadev_packet_header *h, viadev_connection_t *c)
 {
     int peer = c->global_rank;
-    V_PRINT(DEBUG03, "NR: Got reconnect request from [%d]\n", peer);
+    V_PRINT(DEBUG03, "NFR: Got reconnect request from [%d]\n", peer);
 
     /* Update connection status */
     MPICM_Server_connection_establish(peer); 
@@ -1071,14 +1106,14 @@ void nr_incoming_nr_req (viadev_packet_header *h, viadev_connection_t *c)
     /* Update reciver that connection was restore,
        so it will exit fron poll loops*/
     if(QP_REC == c->qp_status) {
-        V_PRINT(DEBUG03, "NR: decrease nr_num_of_bad_connections st %d num %d\n",
-                c->qp_status, nr_num_of_bad_connections-1);
-        nr_num_of_bad_connections--;  
+        V_PRINT(DEBUG03, "NFR: decrease nfr_num_of_bad_connections st %d num %d\n",
+                c->qp_status, nfr_num_of_bad_connections-1);
+        nfr_num_of_bad_connections--;  
         c->qp_status = QP_UP;
     }
 
     /* Switch connection status back to connected state */
-    V_PRINT(DEBUG03, "NR: connection was was in [%d] setting it to PT2PT\n", 
+    V_PRINT(DEBUG03, "NFR: connection was was in [%d] setting it to PT2PT\n", 
             cm_conn_state[peer]);
     assert (c->vi == viadev.qp_hndl[peer]);
     /* switch progress engine to debug mode */
@@ -1094,13 +1129,13 @@ void nr_incoming_nr_req (viadev_packet_header *h, viadev_connection_t *c)
         cm_process_queue(peer);
     }
 
-    V_PRINT(DEBUG03, "NR: Leaving nr_incoming_nr_req\n");
+    V_PRINT(DEBUG03, "NFR: Leaving nfr_incoming_nfr_req\n");
 }
 
-void nr_incoming_nr_rep (viadev_packet_header *h, viadev_connection_t *c)
+void nfr_incoming_nfr_rep (viadev_packet_header *h, viadev_connection_t *c)
 {
     int peer = c->global_rank;
-    V_PRINT(DEBUG03, "NR: Got reconnect reply from [%d]\n", peer);
+    V_PRINT(DEBUG03, "NFR: Got reconnect reply from [%d]\n", peer);
     
     /* Put the progress engeene in network recovery mode */
     c->progress_recov_mode = 1;
@@ -1112,11 +1147,11 @@ void nr_incoming_nr_rep (viadev_packet_header *h, viadev_connection_t *c)
     MPICM_Lock();
     /* Switch connection status back to connected state */
     cm_conn_state[peer] = MPICM_IB_RC_PT2PT;
-    nr_wait_for_replies--;
+    nfr_wait_for_replies--;
     MPICM_Unlock();
 }
 
-void nr_incoming_nr_fin (viadev_connection_t *c)
+void nfr_incoming_nfr_fin (viadev_connection_t *c)
 {
     /* It is posssible that sender got completion on some rndv messages and
      * recv doesnot got. Such messages will not be re-transmited because
@@ -1139,7 +1174,7 @@ void nr_incoming_nr_fin (viadev_connection_t *c)
 
         assert(NULL != rhandle->fin);
         v = rhandle->fin;
-        NR_REMOVE_FROM_WAITING_LIST(l, rhandle);
+        NFR_REMOVE_FROM_WAITING_LIST(l, rhandle);
         RECV_COMPLETE(rhandle);
         V_PRINT(DEBUG03,"Droping rhandle sn %d\n", rhandle->sn);
 #ifdef ADAPTIVE_RDMA_FAST_PATH
@@ -1165,8 +1200,8 @@ static int pool_for_recovery()
     gettimeofday(&now, NULL);
 
     while ((((now.tv_sec - start.tv_sec) * 1000000 +  
-                    (now.tv_usec - start.tv_usec)) < nr_timeout_on_error * 1000000) && /* timeout expired */
-            nr_num_of_bad_connections) { 
+                    (now.tv_usec - start.tv_usec)) < nfr_timeout_on_error * 1000000) && /* timeout expired */
+            nfr_num_of_bad_connections) { 
         /* Progress for new packets*/
         if (poll4data()) {
             gettimeofday(&start, NULL); /* If we got new error we are restarting timer */
@@ -1175,19 +1210,19 @@ static int pool_for_recovery()
         gettimeofday(&now, NULL);
     }
 
-    if (nr_num_of_bad_connections > 0) {
+    if (nfr_num_of_bad_connections > 0) {
         for (i = 0; i < viadev.np; i++) {
             c = &viadev.connections[i];
             if (QP_DOWN == c->qp_status) {
                 /* Send CM connect request here */
-                NR_PRINT("Failed restore connection to rank %d\n",i);
+                NFR_PRINT("Failed restore connection to rank %d\n",i);
             }
         }
         return -1;
     }
     /* Send RC reconnect request */
     /*****************************/
-    nr_wait_for_replies = 0;
+    nfr_wait_for_replies = 0;
     for (i = 0; i < viadev.np; i++) {
         c = &viadev.connections[i];
         if (QP_REC_D == c->qp_status) {
@@ -1200,37 +1235,37 @@ static int pool_for_recovery()
             /* On reply on this connect we will switch the connection state
              * back to PT2PT connected state */
             send_reconnect_req(c);
-            nr_wait_for_replies++;
+            nfr_wait_for_replies++;
         }
     }
     /* We must wait for all replies. If we will not wait Irecv may happend , it may cause 
      * ibv_post send which will be added to waiting_for_ack list and after reply will be retransmitted.
      * So as result remote side will get double packet.
      */
-    while(nr_wait_for_replies > 0) {
+    while(nfr_wait_for_replies > 0) {
         MPID_DeviceCheck(MPID_NOTBLOCKING);
     }
 
     return 0;
 }
 /* The heart of the network recovery */
-int nr_process_qp_error(struct ibv_wc *comp)
+int nfr_process_qp_error(struct ibv_wc *comp)
 {
     if (NULL != comp) {
         process_bad_completion(comp); /* some old qp flush error, just ignore */
     }
 
     if (pool_for_recovery() < 0) {
-        NR_PRINT("<---- Failed to recover ---->\n");
+        NFR_PRINT("<---- Failed to recover ---->\n");
         return -1;
     }
 
-    NR_PRINT("<---- All bad connections were restored ---->\n");
+    NFR_PRINT("<---- All bad connections were restored ---->\n");
     return 0;
 }
 
-/* Prepare recv qp after NR restart */
-void nr_prepare_qp(int peer)
+/* Prepare recv qp after NFR restart */
+void nfr_prepare_qp(int peer)
 {
     /* We post single recv to the qp, it will be used for RC reconnect message */
     if(!viadev_use_srq)
@@ -1238,12 +1273,12 @@ void nr_prepare_qp(int peer)
 }
 
 /* This functions is responsible for HCA restart */
-int nr_restart_hca ()
+int nfr_restart_hca ()
 {
     struct timeval now, start;
     int i;
 
-    NR_PRINT(" > Handling fatal event on the HCA:\n");
+    NFR_PRINT(" > Handling fatal event on the HCA:\n");
     /* Release all hca resources close the device */
     stop_hca();
     sleep(10);
@@ -1254,7 +1289,7 @@ int nr_restart_hca ()
     viadev.context = NULL;
 
     while ((((now.tv_sec - start.tv_sec) * 1000000 +  
-            (now.tv_usec - start.tv_usec)) < nr_timeout_on_restart * 1000000) && /* timeout expired */
+            (now.tv_usec - start.tv_usec)) < nfr_timeout_on_restart * 1000000) && /* timeout expired */
             NULL == viadev.context) { 
         /* Progress for new packets*/
         viadev.context = ibv_open_device(viadev.nic);
@@ -1266,19 +1301,23 @@ int nr_restart_hca ()
         error_abort_all(IBV_RETURN_ERR, "Network Recovery mechanism failed to reopen HCA. Exiting...\n");
     }
     /* Ok, we were able to reopen hca !!! Now we should reallocate all other resources */
-    NR_PRINT(" > HCA is back:\n");
+    NFR_PRINT(" > HCA is back:\n");
     start_hca();
 
-    nr_fatal_error = IN_FATAL;
+    nfr_fatal_error = IN_FATAL;
 
     /* Start reconnect for connections that were connected */
-    NR_PRINT(" > Sending reconect requests\n");
+    NFR_PRINT(" > Sending reconect requests\n");
 
-    nr_num_of_bad_connections = 0;
+    nfr_num_of_bad_connections = 0;
 
     for (i = 0; i < viadev.np; i++) {
         viadev_connection_t *c = &viadev.connections[i];
-        if (viadev.me == i || MPID_Is_local(i)) {
+        if (viadev.me == i 
+#ifdef _SMP_
+                || MPID_Is_local(i)
+#endif
+                ) {
             continue;
         }
         V_PRINT(DEBUG03, "Was connected %d %d\n", i, c->in_restart);
@@ -1290,11 +1329,11 @@ int nr_restart_hca ()
 
     /* Wait for full restore */
     if (pool_for_recovery() < 0) {
-        NR_PRINT("<---- Failed to recover ---->\n");
+        NFR_PRINT("<---- Failed to recover ---->\n");
         return -1;
     }
 
-    NR_PRINT(" > Recovery done\n");
+    NFR_PRINT(" > Recovery done\n");
     /* disable fatal */
     
     return 0;

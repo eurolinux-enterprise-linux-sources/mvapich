@@ -12,7 +12,7 @@
  *          Michael Welcome  <mlwelcome@lbl.gov>
  */
 
-/* Copyright (c) 2002-2009, The Ohio State University. All rights
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
  * reserved.
  *
  * This file is part of the MVAPICH software package developed by the
@@ -421,7 +421,6 @@ typedef struct {
 
 #endif /* XRC */
 
-
 typedef struct {
     struct ibv_device   *nic;
     /* single NIC */
@@ -457,14 +456,12 @@ typedef struct {
     cm_pending_request ** pending_req_tail; 
     uint32_t *ud_qpn_table;
     volatile int cm_new_connection;
-
-    uint16_t            my_hca_lid;
+    /* my HCA LID/GID */
+    lgid             my_hca_id;
+    /* Store HCA LID of all processes */
+    lgid            *lgid_table;
 
     uint8_t             lmc;
-    /* my HCA LID */
-    
-    uint16_t            *lid_table;
-    /* Store HCA LID of all processes */
 
     uint32_t            *qp_table;
     /* Store HCA QP num of all processes */

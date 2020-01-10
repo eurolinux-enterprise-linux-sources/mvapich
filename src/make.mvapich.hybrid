@@ -28,8 +28,8 @@ fi
 
 # Mandatory variables.  All are checked except CXX and F90.
 #IBHOME=${IBHOME:-/usr/local/ofed}
-IBHOME=${IBHOME:-/usr/local/ofed}
-IBHOME_LIB=${IBHOME_LIB:-/usr/local/ofed/lib64}
+IBHOME=${IBHOME:-/usr}
+IBHOME_LIB=${IBHOME_LIB:-/usr/lib64}
 PREFIX=${PREFIX:-/usr/local/mvapich}
 export CC=${CC:-gcc}
 export CXX=${CXX:-g++}

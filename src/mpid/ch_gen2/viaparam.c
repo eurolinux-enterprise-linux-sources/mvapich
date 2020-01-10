@@ -12,7 +12,7 @@
  *          Michael Welcome  <mlwelcome@lbl.gov>
  */
 
-/* Copyright (c) 2002-2009, The Ohio State University. All rights
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
  * reserved.
  *
  * This file is part of the MVAPICH software package developed by the
@@ -35,7 +35,7 @@
 #include "viapacket.h"
 #include "ibverbs_const.h"
 #include "mpid_smpi.h"
-#include "nr.h"
+#include "nfr.h"
 #include "ib_init.h"
 
 /*
@@ -315,18 +315,6 @@ int viadev_credit_notify_threshold = 5;
  */
 int viadev_dynamic_credit_threshold = 10;
 
-/* The RDMA collective register the entire user buffers to provide
- * optimal performance. However, for very large system sizes,
- * it might be difficult to register the entire buffer due to
- * physical memory limitations.
- *
- * Always overridable by use of env. var VIADEV_PT2PT_FAILOVER
- * which is set in MB. By default, it is 256 MB, assuming nodes
- * have atleast 512 MB.
- */
-
-unsigned long viadev_pt2pt_failover = 268435456;
-
 /* Environment variables to control Alltoall
  * algorithm being used. By default the values
  * used are the same as default MPICH
@@ -411,7 +399,11 @@ unsigned int      num_hcas = 0;
 unsigned int      viadev_use_apm = 0;
 unsigned int      viadev_use_apm_test = 0;
 unsigned int      apm_count;
-unsigned int      viadev_nr_ack_threshold = 15;
+unsigned int      viadev_eth_over_ib = 0;
+
+/* Network Fault Resiliency parameters */
+unsigned int      viadev_nfr_ack_threshold = 15;
+unsigned int      viadev_use_nfr = 0;
 
 /*
  * Set the environment variables relating to
@@ -426,6 +418,10 @@ void viadev_init_hca_parameters()
 
     /* Get the appropriate IB device */
     strncpy(viadev.device_name, VIADEV_INVALID_DEVICE, 32);
+
+    if ((value = getenv("VIADEV_USE_RDMAOE")) != NULL) {
+        viadev_eth_over_ib = !!(int)atoi(value);
+    }    
 
     if ((value = getenv("VIADEV_DEVICE")) != NULL) {
         strncpy(viadev.device_name, value, 32);
@@ -449,8 +445,8 @@ void viadev_init_hca_parameters()
         apm_count = APM_COUNT;
     }
     
-    if (NR_ENABLED && (value = getenv("VIADEV_NR_ACK_THRESHOLD"))) {
-        viadev_nr_ack_threshold = atoi(value);
+    if (viadev_use_nfr && (value = getenv("VIADEV_NFR_ACK_THRESHOLD"))) {
+        viadev_nfr_ack_threshold = atoi(value);
     }
     
     if ((value = getenv("VIADEV_DEFAULT_PORT")) != NULL) {
@@ -555,9 +551,9 @@ void viadev_init_parameters(int num_proc, int me)
             viadev_default_mtu = IBV_MTU_1024;
     }
 
-    if ((value = getenv("VIADEV_USE_NR")) != NULL) {
-        NR_ENABLED = (int)atoi(value);
-        if(NR_ENABLED) {
+    if ((value = getenv("VIADEV_USE_NFR")) != NULL) {
+        viadev_use_nfr = !!atoi(value);
+        if(viadev_use_nfr) {
             viadev_rndv_protocol = VIADEV_PROTOCOL_RGET;
         }
     }
@@ -704,7 +700,7 @@ void viadev_init_parameters(int num_proc, int me)
             viadev_use_srq = 1;
             viadev_use_eager_coalesce = 0;
 
-            if(NR_ENABLED) {
+            if(viadev_use_nfr) {
                 error_abort_all(GEN_EXIT_ERR, "VIADEV_USE_XRC=1 and VIADEV_USE_NR=1  "
                         "cannot be set at the same time\n");
             }
@@ -915,11 +911,6 @@ void viadev_init_parameters(int num_proc, int me)
         viadev_prepost_depth + viadev_prepost_rendezvous_extra +
         viadev_prepost_noop_extra;
 
-     if ((value = getenv("VIADEV_PT2PT_FAILOVER")) != NULL) {
-         viadev_pt2pt_failover = atol(value) * (1024 * 1024);
-     }
-
-
      /* Decide whether on demand is used*/
 #ifdef XRC
      if (1 != viadev_use_xrc)
@@ -993,6 +984,12 @@ void viadev_init_parameters(int num_proc, int me)
          viadev_max_spin_count = atoll(value);
      }
 
+     if(viadev_use_blocking && viadev_use_nfr) {
+         error_abort_all(GEN_ASSERT_ERR,
+                 "Cannot use VIADEV_USE_BLOCKING and VIADEV_USE_NR"
+                 " at the same time, please disable either one\n");
+     }
+
 
      /* Default parameters in the presence of memory
       * based reliability */
@@ -1001,7 +998,6 @@ void viadev_init_parameters(int num_proc, int me)
     viadev_use_srq = 0;
     viadev_credit_preserve = 10;
 #endif
-
 }
 
 void dump_param_values(FILE * fd, int me)
@@ -1306,6 +1302,19 @@ void viadev_set_default_parameters(int nprocs, int me, int do_autodetect, int hc
                 viadev_use_srq = 0;
                 viadev_credit_preserve = 10;
                 viadev_vbuf_total_size = (12 * 1024);
+                break;
+            case RDMAOE:
+                viadev_default_mtu = IBV_MTU_1024;
+                viadev_use_srq = 1;
+                viadev_credit_preserve = 100;
+                viadev_initial_credits = viadev_credit_preserve + 100;
+#ifdef _X86_64_
+                viadev_vbuf_total_size = (9 * 1024);
+#else
+                viadev_vbuf_total_size = (6 * 1024);
+#endif
+
+                viadev_use_eager_coalesce = 1;
                 break;
             case HCA_ERROR:
                 error_abort_all(IBV_RETURN_ERR,

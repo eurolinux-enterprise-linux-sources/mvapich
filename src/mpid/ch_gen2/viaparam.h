@@ -12,7 +12,7 @@
  *          Michael Welcome  <mlwelcome@lbl.gov>
  */
 
-/* Copyright (c) 2002-2009, The Ohio State University. All rights
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
  * reserved.
  *
  * This file is part of the MVAPICH software package developed by the
@@ -166,7 +166,9 @@ extern unsigned int         num_hcas;
 extern unsigned int         viadev_use_apm;
 extern unsigned int         viadev_use_apm_test;
 extern unsigned int         apm_count;
-extern unsigned int         viadev_nr_ack_threshold;
+extern unsigned int         viadev_nfr_ack_threshold;
+extern unsigned int         viadev_eth_over_ib;
+extern unsigned int         viadev_use_nfr;
 
 typedef struct {
     unsigned int hca_id;
@@ -183,6 +185,7 @@ typedef enum {
     CONNECTX_DDR,
     CONNECTX_QDR,
     PATH_HT,
+    RDMAOE,
     IBM_EHCA
 } viadev_hca_type_t;
 

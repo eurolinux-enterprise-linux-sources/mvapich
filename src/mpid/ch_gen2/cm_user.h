@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2009, The Ohio State University. All rights
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
  * reserved.
  *
  * This file is part of the MVAPICH software package developed by the
@@ -15,7 +15,7 @@
 
 #include <infiniband/verbs.h>
 #include "ibverbs_header.h"
-#include "nr.h"
+#include "nfr.h"
 
 
 void odu_enable_qp(int peer, struct ibv_qp * qp);
@@ -39,15 +39,19 @@ static inline void odu_test_new_connection()
         if (i==viadev.me)
             continue;
 
-        if (NR_ENABLED && QP_REC == viadev.connections[i].qp_status) {
-            V_PRINT(DEBUG03, "[%d]connection request bad-%d %d %d %d\n", i, nr_num_of_bad_connections, viadev.pending_req_head[i], cm_conn_state[i], viadev.connections[i].qp_status);
-            nr_num_of_bad_connections--; /* decreasing number of error connections */
+        if (viadev_use_nfr && QP_REC == viadev.connections[i].qp_status) {
+            V_PRINT(DEBUG03, "[%d]connection request bad-%d %d %d %d\n", i, 
+                    nfr_num_of_bad_connections, viadev.pending_req_head[i], 
+                    cm_conn_state[i], viadev.connections[i].qp_status);
+            nfr_num_of_bad_connections--; /* decreasing number of error connections */
             viadev.connections[i].qp_status = QP_REC_D;
         } else {
-            V_PRINT(DEBUG03,"[%d]connection request %d %d %d\n", i, viadev.pending_req_head[i], cm_conn_state[i], viadev.connections[i].qp_status);
+            V_PRINT(DEBUG03,"[%d]connection request %d %d %d\n", i, 
+                    viadev.pending_req_head[i], cm_conn_state[i], 
+                    viadev.connections[i].qp_status);
             if (viadev.pending_req_head[i] != NULL 
                     && MPICM_IB_RC_PT2PT == cm_conn_state[i] &&
-                    QP_UP == viadev.connections[i].qp_status) { /* Pasha */
+                    QP_UP == viadev.connections[i].qp_status) {
                 V_PRINT(DEBUG03,"First connection request \n !!!!");
                 cm_process_queue(i);    
             }    

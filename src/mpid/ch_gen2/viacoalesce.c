@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2009, The Ohio State University. All rights
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
  * reserved.
  *
  * This file is part of the MVAPICH software package developed by the
@@ -20,7 +20,7 @@
 #include "viutil.h"
 #include "vbuf.h"
 #include "viapacket.h"
-#include "nr.h"
+#include "nfr.h"
 
 inline int match_cached_out_envelope(viadev_connection_t * c, 
         viadev_packet_envelope * e) {
@@ -152,7 +152,7 @@ void eager_coalesce(viadev_connection_t * c, char * buf,
     h->header.vbuf_credit   += c->local_credit;
     h->header.remote_credit  = c->remote_credit;
     /* Update NR credits */
-    if (NR_ENABLED) {
+    if (viadev_use_nfr) {
         h->header.ack += c->pending_acks;
         c->pending_acks = 0;
     }

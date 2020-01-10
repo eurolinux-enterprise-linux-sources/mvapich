@@ -24,14 +24,15 @@
 Summary: MPI implementation over Infiniband RDMA-enabled interconnect
 Name: mvapich
 Version: 1.2.0
-Release: 0.3562.5%{?dist}
+Release: 0.3563.rc1.3%{?dist}
 License: BSD
 Group: Development/Libraries
-Source0: mvapich-%{version}-3562.tar.gz
+Source0: mvapich-1.2rc1.tar.gz
 Source1: macros.mvapich
 Source2: mvapich.module.in
 Source3: macros.mvapich-psm
 Patch0: mvapich-1.0.1-limit.patch
+Patch1: mvapich-1.2rc1-build.patch
 URL: http://mvapich.cse.ohio-state.edu/
 Requires: %{name}-common = %{version}-%{release}
 BuildRequires: libibverbs-devel >= 1.1.3, libibumad-devel, perl, autoconf
@@ -39,7 +40,7 @@ BuildRequires: java, python
 %ifarch x86_64
 BuildRequires: infinipath-psm-devel
 %endif
-ExclusiveArch: i386 x86_64 ia64 ppc64
+ExclusiveArch: i686 i386 x86_64 ia64 ppc64
 Provides: mpi
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
@@ -118,15 +119,16 @@ package for those who must have it.
 %endif
 
 %prep
-%setup -q -n %{name}-%{version}-3562
+%setup -q -n %{name}-1.2rc1
 %patch0 -p1 -b .limit
+%patch1 -p1 -b .build
 # We need to do two compiles: one for psm, and one for regular.
 mkdir .psm .non-psm
 %ifarch x86_64
 cp -r * .psm
 %endif
 mv * .non-psm
-ln .non-psm/{BUILDID,CHANGELOG,COPYRIGHT*,INSTALL,LICENSE.TXT,README*} .
+ln .non-psm/{CHANGELOG,COPYRIGHT*,INSTALL,LICENSE.TXT,README*} .
 mv .non-psm/{doc,examples,www,share,installtest} .
 ln -s ../{doc,examples,www,share,installtest} .non-psm
 
@@ -137,7 +139,6 @@ CONFIG_ENABLE_F90="--enable-f90"
 EXTRA_CFLAG=
 MPE_FLAGS="--with-mpe"
 conffile=mvapich.conf
-buildidfile=BUILDID
 #############################################################################
 # Compiler definition
 # GNU compilers
@@ -244,6 +245,22 @@ if [ %{compiler} == "gcc" ]; then
     MPE_FLAGS=-mpe_opts="--with-cflags=-m32 --with-fflags=-m32"
 fi
 %endif
+# Duplicate i386 for i686
+%ifarch i686
+export ARCH="_IA32_"
+if [ %{compiler} == "gcc" ]; then
+    # Flag fixes for Fedora PPC
+    CFLAGS="-m32 $CFLAGS"
+    CXXFLAGS="-m32 $CXXFLAGS"
+    CPPFLAGS="-m32 $CPPFLAGS"
+    FFLAGS="-m32 $FFLAGS"
+    F90FLAGS="-m32 $F90FLAGS"
+    LDFLAGS="-m32 $LDFLAGS"
+    USER_CFLAGS="-m32 $USER_CFLAGS"
+    MPIRUN_CFLAGS="-m32 $MPIRUN_CFLAGS"
+    MPE_FLAGS=-mpe_opts="--with-cflags=-m32 --with-fflags=-m32"
+fi
+%endif
 %ifarch ia64
 export ARCH="_IA64_"
 if [[ (( -f /lib/ssa/libgcc_s.so ) || ( -f /usr/lib/libgcc_s.so )) ]]; then
@@ -281,16 +298,6 @@ if [ %{compiler} == "gcc" ]; then
 fi
 %endif
 
-# check for version
-if [ -f $buildidfile ]; then
-    buildid=`cat $buildidfile | grep MVAPICH_BUILDID |awk '{print $2}'`
-    if [ "$buildid" != "" ];then
-        DEF_BUILDID="$DEF_BUILDID -DMVAPICH_BUILDID=\\\"$buildid\\\""
-    else
-        DEF_BUILDID=""
-    fi
-fi
-
 # Must set these in order to keep configure from breaking
 export IB_HOME=/usr
 export IB_HOME_LIB=%{_libdir}
@@ -308,13 +315,13 @@ export CXXFLAGS="$CXXFLAGS"
 export FFLAGS="$FFLAGS $EXTRA_CFLAG"
 export F90FLAGS="$F90FLAGS $EXTRA_CFLAG"
 export CONFIG_FLAGS
-export MPIRUN_CFLAGS="$MPIRUN_CFLAGS -DPARAM_GLOBAL=\\\"%{_sysconfidr}/%{namearch}/$conffile\\\" -DLD_LIBRARY_PATH_MPI=\\\"%{mpidir}/lib\\\" -DMPI_PREFIX=\\\"%{mpidir}/\\\" $DEF_BUILDID"
+export MPIRUN_CFLAGS="$MPIRUN_CFLAGS -DPARAM_GLOBAL=\\\"%{_sysconfidr}/%{namearch}/$conffile\\\" -DLD_LIBRARY_PATH_MPI=\\\"%{mpidir}/lib\\\" -DMPI_PREFIX=\\\"%{mpidir}/\\\""
 set -o pipefail
 ./configure --enable-sharedlib=%{mpidir}/lib --with-device=%{mpi_device} --with-mpd --with-arch=LINUX -prefix=%{mpidir} --with-echo $CONFIG_ENABLE_F77 $CONFIG_ENABLE_F90 $COMPILER_CONFIG -lib="-libverbs -libumad -lpthread $EXTRA_CFLAG" $MPE_FLAGS $CONFIG_FLAGS
 %ifarch x86_64
 cd ../.psm
 export PREFIX=%{mpipsmdir}
-export MPIRUN_CFLAGS="$MPIRUN_CFLAGS -DPARAM_GLOBAL=\\\"%{_sysconfidr}/%{namepsmarch}/$conffile\\\" -DLD_LIBRARY_PATH_MPI=\\\"%{mpipsmdir}/lib\\\" -DMPI_PREFIX=\\\"%{mpipsmdir}/\\\" $DEF_BUILDID"
+export MPIRUN_CFLAGS="$MPIRUN_CFLAGS -DPARAM_GLOBAL=\\\"%{_sysconfidr}/%{namepsmarch}/$conffile\\\" -DLD_LIBRARY_PATH_MPI=\\\"%{mpipsmdir}/lib\\\" -DMPI_PREFIX=\\\"%{mpipsmdir}/\\\""
 export CFLAGS="$TMP_CFLAGS -D$ARCH $OPTIMIZATION_FLAG -g -D_GNU_SOURCE -DCH_PSM -D_AFFINITY_ -DMEMORY_SCALE -D_SMP_ -D_SMP_RNDV_ -DVIADEV_RPUT_SUPPORT -DEARLY_SEND_COMPLETION"
 ./configure --enable-sharedlib=%{mpipsmdir}/lib --with-device=ch_psm \
  --with-mpd --with-arch=LINUX -prefix=%{mpipsmdir} --with-echo $CONFIG_ENABLE_F77\
@@ -361,6 +368,8 @@ rm -fr %{buildroot}%{mpidir}/share
 rm -fr %{buildroot}%{mpidir}/doc
 rm -fr %{buildroot}%{mpidir}/www
 rm -fr %{buildroot}%{mpidir}/examples
+rm -f  %{buildroot}%{_mandir}/%{namearch}/mandesc
+
 
 mkdir -p %{buildroot}%{python_sitearch}/%{name}%{?_cc_name_suffix}
 mkdir -p %{buildroot}%{_fmoddir}/%{namearch}
@@ -397,10 +406,12 @@ rm -fr %{buildroot}%{mpipsmdir}/share
 rm -fr %{buildroot}%{mpipsmdir}/doc
 rm -fr %{buildroot}%{mpipsmdir}/www
 rm -fr %{buildroot}%{mpipsmdir}/examples
+rm -f  %{buildroot}%{_mandir}/%{namepsmarch}/mandesc
+
 
 install -m644 -D %{SOURCE3} %{buildroot}%{_sysconfdir}/rpm/macros.%{namepsmarch}
 
-sed 's#@LIBDIR@#'%{_libdir}/%{name}'#g;s#@ETCDIR@#'%{_sysconfdir}/%{namepsmarch}'#g;s#@FMODDIR@#'%{_fmoddir}/%{namepsmarch}'#g;s#@INCDIR@#'%{_includedir}/%{namepsmarch}'#g;s#@MANDIR@#'%{_mandir}/%{namepsmarch}'#g;s#@PYSITEARCH@#'%{python_sitearch}/%{name}'#g;s#@COMPILER@#%{name}-'%{_arch}%{?_cc_name_suffix}'#g;s#@SUFFIX@#'%{?_cc_name_suffix}'_%{name}#g' < %{SOURCE2} > %{buildroot}%{_sysconfdir}/modulefiles/%{namepsmarch}
+sed 's#@LIBDIR@#'%{_libdir}/%{name}-psm'#g;s#@ETCDIR@#'%{_sysconfdir}/%{namepsmarch}'#g;s#@FMODDIR@#'%{_fmoddir}/%{namepsmarch}'#g;s#@INCDIR@#'%{_includedir}/%{namepsmarch}'#g;s#@MANDIR@#'%{_mandir}/%{namepsmarch}'#g;s#@PYSITEARCH@#'%{python_sitearch}/%{name}'#g;s#@COMPILER@#%{name}-'%{_arch}%{?_cc_name_suffix}'#g;s#@SUFFIX@#'%{?_cc_name_suffix}'_%{name}#g' < %{SOURCE2} > %{buildroot}%{_sysconfdir}/modulefiles/%{namepsmarch}
 %endif
 
 %clean
@@ -415,7 +426,6 @@ rm -rf %{buildroot}
 %dir %{mpidir}
 %{mpidir}/*
 %dir %{_mandir}/%{namearch}
-%{_mandir}/%{namearch}/mandesc
 %dir %{_mandir}/%{namearch}/man?
 %{_mandir}/%{namearch}/man1/*
 %{_sysconfdir}/modulefiles/*
@@ -441,7 +451,7 @@ rm -rf %{buildroot}
 
 %files common
 %defattr(-, root, root, -)
-%doc BUILDID CHANGELOG COPYRIGHT* INSTALL LICENSE.TXT README* doc examples www* share installtest
+%doc CHANGELOG COPYRIGHT* INSTALL LICENSE.TXT README* doc examples www* share installtest
 
 %files static
 %defattr(-, root, root, -)
@@ -453,7 +463,6 @@ rm -rf %{buildroot}
 %dir %{mpipsmdir}
 %{mpipsmdir}/*
 %dir %{_mandir}/%{namepsmarch}
-%{_mandir}/%{namepsmarch}/mandesc
 %dir %{_mandir}/%{namepsmarch}/man?
 %{_mandir}/%{namepsmarch}/man1/*
 %{_sysconfdir}/modulefiles/*
@@ -483,6 +492,21 @@ rm -rf %{buildroot}
 %endif
 
 %changelog
+* Fri Aug 19 2011 Jay Fenlason <fenlason@redhat.com> 1.2.0-0.3563.rc1.3.el6
+- Fix the ExclusiveArch and add an i686 stanza to build for i686
+  Related: rhbz725016
+
+* Wed Aug 17 2011 Jay Fenlason <fenlason@redhat.com> 1.2.0-0.3563.rc1.2.el6
+- Fix psm RPM macros so that we can build a -psm variant of mpitests
+- Remove the mandesc files that rpmdiff doesn't like.
+  Related: rhbz725016
+
+* Thu Aug 11 2011 Jay Fenlason <fenlason@redhat.com> 1.2.0-0.3563.rc1.1.el6
+- Upgrade to rc1 from upstream
+  Munge release value so it'll upgrade cleanly.
+  Add -build patch and modify spec file so rc1 will build.
+  Related: rhbz725016
+
 * Fri Jun 4 2010 Jay Fenlason <fenlason@redhat.com> 1.2.0-0.3562.5.el6
 - Reorganization and stuff to build -psm packages on x86_64 (only)
   Related: rhbz570274

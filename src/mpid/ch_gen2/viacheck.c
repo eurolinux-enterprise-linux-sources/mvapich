@@ -12,7 +12,7 @@
  *          Michael Welcome  <mlwelcome@lbl.gov>
  */
 
-/* Copyright (c) 2002-2009, The Ohio State University. All rights
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
  * reserved.
  *
  * This file is part of the MVAPICH software package developed by the
@@ -27,7 +27,7 @@
 #include "mpid_bind.h"
 #include "ibverbs_header.h"
 #include "viutil.h"
-#include "nr.h"
+#include "nfr.h"
 #include "viapriv.h"
 #include "viapacket.h"
 #include "queue.h"
@@ -341,8 +341,8 @@ int MPID_DeviceCheck(MPID_BLOCKING_TYPE blocking)
     while (ret1 == 0) {         /* at least success on one */
 #endif
         /* Chek if it was fatal */
-        if (VIADEV_UNLIKELY(1 == NR_ENABLED && FATAL == nr_fatal_error)) {
-            if (nr_restart_hca() < 0) {
+        if (VIADEV_UNLIKELY(1 == viadev_use_nfr && FATAL == nfr_fatal_error)) {
+            if (nfr_restart_hca() < 0) {
                 error_abort_all(((vbuf *) vbuf_addr)->grank, "Failed restore connection");
             }
             return MPI_SUCCESS;
@@ -414,7 +414,7 @@ int MPID_DeviceCheck(MPID_BLOCKING_TYPE blocking)
 
                 /* Need to check if it is a completion with error */
                 if (sc.status != IBV_WC_SUCCESS) {
-                    if (!NR_ENABLED) {
+                    if (!viadev_use_nfr) {
                         error_abort_all(((vbuf *) vbuf_addr)->grank,
                                 "[%s:%d] Got completion with error %s, "
                                 "code=%d, dest rank=%d\n",
@@ -422,12 +422,12 @@ int MPID_DeviceCheck(MPID_BLOCKING_TYPE blocking)
                                 wc_code_to_str(sc.status), sc.status,
                                 ((vbuf *) vbuf_addr)->grank);
                     } else {
-                        NR_PRINT("[%s:%d] Got completion with error %s, "
+                        NFR_PRINT("[%s:%d] Got completion with error %s, "
                                 "code=%d, dest rank=%d, qp_num %x - Starting Network Recovery process",
                                 viadev.my_name, viadev.me,
                                 wc_code_to_str(sc.status), sc.status,
                                 ((vbuf *) vbuf_addr)->grank, sc.qp_num);
-                        if (nr_process_qp_error(&sc) < 0) {
+                        if (nfr_process_qp_error(&sc) < 0) {
                             error_abort_all(((vbuf *) vbuf_addr)->grank, "Failed restore connection");
                         }
                         return MPI_SUCCESS;
@@ -784,7 +784,7 @@ void viadev_process_send(void *vbuf_addr)
         {
             MPIR_RHANDLE *r = NULL;
             r = (MPIR_RHANDLE *) v->shandle;
-            if(NR_ENABLED) {
+            if(viadev_use_nfr) {
                 r->fin = NULL;
 
                 if (0 == r->remote_address) {
@@ -794,7 +794,7 @@ void viadev_process_send(void *vbuf_addr)
                     r = NULL;
                 } else {
                     /* is not dummy rndv */
-                    NR_REMOVE_FROM_WAITING_LIST(&(c->rndv_inprocess), r);
+                    NFR_REMOVE_FROM_WAITING_LIST(&(c->rndv_inprocess), r);
                 }
             }
             if (r != NULL) {
@@ -1185,7 +1185,7 @@ void viadev_process_recv(void *vbuf_addr)
                 header->id != c->next_packet_expected) {
             if (VIADEV_UNLIKELY(c->progress_recov_mode && 
                         VIADEV_PACKET_RENDEZVOUS_START_RETRY == header->type)) {
-                nr_process_retransmit(c, header);
+                nfr_process_retransmit(c, header);
                 return;
             }
             /* switch to the rdma channel */
@@ -1206,7 +1206,7 @@ void viadev_process_recv(void *vbuf_addr)
 #ifndef ADAPTIVE_RDMA_FAST_PATH
         if (VIADEV_UNLIKELY(header->id != c->next_packet_expected)) {
             if(VIADEV_UNLIKELY(c->progress_recov_mode)) {
-                nr_process_retransmit(c, header);
+                nfr_process_retransmit(c, header);
                 return;
             } else {
                 error_abort_all(GEN_ASSERT_ERR,
@@ -1248,7 +1248,7 @@ void viadev_process_recv(void *vbuf_addr)
 
 #ifdef ADAPTIVE_RDMA_FAST_PATH
     /* process rdma credit */
-    if (!NR_ENABLED) {
+    if (!viadev_use_nfr) {
         if (header->rdma_credit > 0) {
             c->ptail_RDMA_send += header->rdma_credit;
             if (c->ptail_RDMA_send >= viadev_num_rdma_buffer)
@@ -1296,10 +1296,10 @@ void viadev_process_recv(void *vbuf_addr)
     case VIADEV_PACKET_EAGER_START:
 #ifdef ADAPTIVE_RDMA_FAST_PATH
         FAST_PATH_ALLOC(c);
-        if (NR_ENABLED && IS_NORMAL_VBUF(v))
-            NR_INCREASE_PENDING(c);
+        if (viadev_use_nfr && IS_NORMAL_VBUF(v))
+            NFR_INCREASE_PENDING(c);
 #else
-        NR_INCREASE_PENDING(c);
+        NFR_INCREASE_PENDING(c);
 #endif
 
         viadev_incoming_eager_start(v, c,
@@ -1310,10 +1310,10 @@ void viadev_process_recv(void *vbuf_addr)
         break;
     case VIADEV_PACKET_EAGER_COALESCE:
 #ifdef ADAPTIVE_RDMA_FAST_PATH
-        if (NR_ENABLED && IS_NORMAL_VBUF(v))
-            NR_INCREASE_PENDING(c);
+        if (viadev_use_nfr && IS_NORMAL_VBUF(v))
+            NFR_INCREASE_PENDING(c);
 #else
-        NR_INCREASE_PENDING(c);
+        NFR_INCREASE_PENDING(c);
 #endif
         viadev_incoming_eager_coalesce(v, c,
                 (viadev_packet_eager_coalesce *) header);
@@ -1321,10 +1321,10 @@ void viadev_process_recv(void *vbuf_addr)
 
     case VIADEV_PACKET_EAGER_NEXT:
 #ifdef ADAPTIVE_RDMA_FAST_PATH
-        if (NR_ENABLED && IS_NORMAL_VBUF(v))
-            NR_INCREASE_PENDING(c);
+        if (viadev_use_nfr && IS_NORMAL_VBUF(v))
+            NFR_INCREASE_PENDING(c);
 #else
-        NR_INCREASE_PENDING(c);
+        NFR_INCREASE_PENDING(c);
 #endif
         viadev_incoming_eager_next(v, c,
                                    (viadev_packet_eager_next *) header);
@@ -1363,7 +1363,7 @@ void viadev_process_recv(void *vbuf_addr)
 #ifdef MCST_SUPPORT
     case VIADEV_PACKET_RENDEZVOUS_CANCEL:
 #endif
-        NR_INCREASE_PENDING(c);
+        NFR_INCREASE_PENDING(c);
 
         viadev_incoming_rendezvous_reply(v, c,
                                          (viadev_packet_rendezvous_reply *)
@@ -1380,7 +1380,7 @@ void viadev_process_recv(void *vbuf_addr)
         break;
     case VIADEV_PACKET_R3_DATA:
         /* R3 data can be delivered only via send protocol */
-        NR_INCREASE_PENDING(c);
+        NFR_INCREASE_PENDING(c);
         viadev_incoming_r3_data(v, c, (viadev_packet_r3_data *) header);
         release_vbuf(v);
         break;
@@ -1431,27 +1431,27 @@ void viadev_process_recv(void *vbuf_addr)
 #endif
         break;
     case VIADEV_PACKET_NOOP:
-        /* Handling NR reconnect request.
+        /* Handling NFR reconnect request.
          * In NOOP messages the ID value is never used - it is alway zero 
-         * I will use it for our NR reconnect request and reply stuff
+         * I will use it for our NFR reconnect request and reply stuff
          * Yep, it is ugly, from other side it will save *if* latency in a lot of places
          * and also will prevent a lot of ifdefs
          */
-        if (NR_ENABLED) {
+        if (viadev_use_nfr) {
             switch(header->id) {
-                case NR_REQ:
-                    nr_incoming_nr_req(header, c);
+                case NFR_REQ:
+                    nfr_incoming_nfr_req(header, c);
                     was_nr = 1;
                     break;
-                case NR_REP:
-                    nr_incoming_nr_rep(header, c);
+                case NFR_REP:
+                    nfr_incoming_nfr_rep(header, c);
                     was_nr = 1;
                     break;
-                case NR_FIN:
+                case NFR_FIN:
                     V_PRINT(DEBUG03,"Got NOOP Fin Message\n");
-                    nr_incoming_nr_fin(c);
+                    nfr_incoming_nfr_fin(c);
                     c->progress_recov_mode = 0;
-                    nr_fatal_error = NO_FATAL;
+                    nfr_fatal_error = NO_FATAL;
                     was_nr = 1;
                     break;
                 case 0:
@@ -1512,7 +1512,7 @@ void viadev_process_recv(void *vbuf_addr)
         break;
 #endif
     case VIADEV_PACKET_R3_ACK:
-        NR_INCREASE_PENDING(c);
+        NFR_INCREASE_PENDING(c);
         viadev_process_r3_ack(v, c, (viadev_packet_r3_ack *) header);
         release_vbuf(v);
         break;
@@ -1523,9 +1523,9 @@ void viadev_process_recv(void *vbuf_addr)
                         "viadev_process_recv", header->type);
     }
 
-    NR_RELEASE(&c->waiting_for_ack, acks);
+    NFR_RELEASE(&c->waiting_for_ack, acks);
     viadev_send_noop_ifneeded(c);
-    NR_SEND_ACK_IFNEEDED(c);
+    NFR_SEND_ACK_IFNEEDED(c);
 }
 
 
@@ -1621,7 +1621,7 @@ void viadev_incoming_rendezvous_start(vbuf * v, viadev_connection_t * c,
 
     rhandle->remote_address = header->buffer_address;
     rhandle->remote_memhandle_rkey = header->memhandle_rkey;
-    if(NR_ENABLED) {
+    if(viadev_use_nfr) {
         rhandle->fin  = NULL;
         rhandle->next = NULL;
         rhandle->prev = NULL;
@@ -2097,7 +2097,7 @@ void viadev_incoming_rendezvous_reply(vbuf * v, viadev_connection_t * c,
             s->remote_address = NULL;
             s->protocol = VIADEV_PROTOCOL_R3;
             /* If receiver wants to switch to R3 we need to release the RNDV START now */
-            NR_RELEASE_RNDV_START(&c->waiting_for_ack, (vbuf*)s->rndv_start);
+            NFR_RELEASE_RNDV_START(&c->waiting_for_ack, (vbuf*)s->rndv_start);
         } else {
             assert(header->protocol == VIADEV_PROTOCOL_RPUT);
 
@@ -2109,7 +2109,7 @@ void viadev_incoming_rendezvous_reply(vbuf * v, viadev_connection_t * c,
         if (header->protocol == VIADEV_PROTOCOL_R3) {
             s->protocol = VIADEV_PROTOCOL_R3;
             /* If receiver wants to switch to R3 we need to release the RNDV START now */
-            NR_RELEASE_RNDV_START(&c->waiting_for_ack, (vbuf*)s->rndv_start);
+            NFR_RELEASE_RNDV_START(&c->waiting_for_ack, (vbuf*)s->rndv_start);
         } else {
             /* should never have gotten here if both sides
              * agreed on RGET */
@@ -2120,7 +2120,7 @@ void viadev_incoming_rendezvous_reply(vbuf * v, viadev_connection_t * c,
     case VIADEV_PROTOCOL_R3:
         assert(header->protocol == VIADEV_PROTOCOL_R3);
         /* We got reply on our rndv request, so we can remove it from the list */
-        NR_RELEASE_RNDV_START(&c->waiting_for_ack, (vbuf*)s->rndv_start);
+        NFR_RELEASE_RNDV_START(&c->waiting_for_ack, (vbuf*)s->rndv_start);
         break;
 
     default:
@@ -2251,7 +2251,7 @@ void viadev_rendezvous_push(MPIR_SHANDLE * s)
         databuf = ((char *) h) + sizeof(viadev_packet_r3_data);
 
         /* set up the packet */
-        PACKET_SET_HEADER_NR(h, c, VIADEV_PACKET_R3_DATA);
+        PACKET_SET_HEADER_NFR(h, c, VIADEV_PACKET_R3_DATA);
         h->rreq = s->receive_id;
 
         /* figure out how much data to send in this packet */
@@ -2361,7 +2361,7 @@ void viadev_incoming_rget_finish(vbuf * v, viadev_connection_t * c,
 
     /* find the rhandle for this data */
     shandle = (MPIR_SHANDLE *) ID_TO_REQ(h->sreq);
-    NR_RELEASE_RNDV_START(&c->waiting_for_ack, (vbuf*)shandle->rndv_start);
+    NFR_RELEASE_RNDV_START(&c->waiting_for_ack, (vbuf*)shandle->rndv_start);
     SEND_COMPLETE(shandle);
 }
 
@@ -2417,7 +2417,7 @@ void viadev_r3_ack(viadev_connection_t *c)
 
     viadev_packet_r3_ack *p = (viadev_packet_r3_ack *) VBUF_BUFFER_START(v);
 
-    PACKET_SET_HEADER_NR(p, c, VIADEV_PACKET_R3_ACK);
+    PACKET_SET_HEADER_NFR(p, c, VIADEV_PACKET_R3_ACK);
 
     p->ack_data = c->received_r3_data;
 
@@ -2436,7 +2436,7 @@ void viadev_rput_finish(MPIR_SHANDLE * s)
     viadev_connection_t *c = (viadev_connection_t *) (s->connection);
 
     /* fill in the packet */
-    PACKET_SET_HEADER_NR(packet, c, VIADEV_PACKET_RPUT_FINISH);
+    PACKET_SET_HEADER_NFR(packet, c, VIADEV_PACKET_RPUT_FINISH);
     packet->rreq = REQ_TO_ID(s->receive_id);
 
     /* mark MPI send complete when VIA send completes */
@@ -2456,12 +2456,12 @@ void viadev_rget_finish(MPIR_RHANDLE * r)
     viadev_connection_t *c = (viadev_connection_t *) (r->connection);
 
     /* fill in the packet */
-    PACKET_SET_HEADER_NR(packet, c, VIADEV_PACKET_RGET_FINISH);
+    PACKET_SET_HEADER_NFR(packet, c, VIADEV_PACKET_RGET_FINISH);
     packet->sreq = REQ_TO_ID(r->send_id);
 
     v->shandle = r;
 
-    if(NR_ENABLED) {
+    if(viadev_use_nfr) {
         r->fin = v;
     }
     /* prepare descriptor and post */
@@ -2485,8 +2485,8 @@ static void viutil_spinandwaitcq(struct ibv_wc *sc)
 
     while (1) {
         /* Chek if it was fatal */
-        if (VIADEV_UNLIKELY(1 == NR_ENABLED && FATAL == nr_fatal_error)) {
-            if (nr_restart_hca() < 0) {
+        if (VIADEV_UNLIKELY(1 == viadev_use_nfr && FATAL == nfr_fatal_error)) {
+            if (nfr_restart_hca() < 0) {
                 error_abort_all(IBV_RETURN_ERR, "Failed restore connection");
             }
             sc->wr_id = 0;
@@ -2579,7 +2579,7 @@ static void viutil_spinandwaitcq(struct ibv_wc *sc)
         if (ne > 0) {
             void * vbuf_addr = (void *) ((aint_t) sc->wr_id);
             if (sc->status != IBV_WC_SUCCESS) {
-                if (!NR_ENABLED) {
+                if (!viadev_use_nfr) {
                     error_abort_all(((vbuf *) vbuf_addr)->grank,
                             "[%s:%d] Got completion with error %s, "
                             "code=%d, dest rank=%d\n",
@@ -2587,13 +2587,13 @@ static void viutil_spinandwaitcq(struct ibv_wc *sc)
                             wc_code_to_str(sc->status), sc->status,
                             ((vbuf *) vbuf_addr)->grank);
                 } else {
-                    NR_PRINT("[%s:%d] Got completion with error %s, "
+                    NFR_PRINT("[%s:%d] Got completion with error %s, "
                             "code=%d, dest rank=%d qp=%x - Starting Network Recovery process\n",
                             viadev.my_name, viadev.me,
                             wc_code_to_str(sc->status), sc->status,
                             ((vbuf *) vbuf_addr)->grank, sc->qp_num);
                     fflush(stderr);
-                    if (nr_process_qp_error(sc) < 0) {
+                    if (nfr_process_qp_error(sc) < 0) {
                         error_abort_all(((vbuf *) vbuf_addr)->grank, "Failed restore connection");
                     }
                     /* reset */
@@ -2788,9 +2788,9 @@ void async_thread(void *context)
                 break;
             case IBV_EVENT_PATH_MIG_ERR:
             case IBV_EVENT_DEVICE_FATAL:
-                if (NR_ENABLED) {
+                if (viadev_use_nfr) {
                     /* Fire the fatal flag */
-                    nr_fatal_error = FATAL;
+                    nfr_fatal_error = FATAL;
                 }
                 break;
 

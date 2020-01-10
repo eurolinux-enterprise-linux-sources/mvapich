@@ -12,7 +12,7 @@
  *          Michael Welcome  <mlwelcome@lbl.gov>
  */
 
-/* Copyright (c) 2002-2009, The Ohio State University. All rights
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
  * reserved.
  *
  * This file is part of the MVAPICH software package developed by the
@@ -25,7 +25,7 @@
  */
 
 #include "mpid.h"
-#include "nr.h"
+#include "nfr.h"
 #include "viadev.h"
 #include "viapriv.h"
 #include "dreg.h"
@@ -94,7 +94,7 @@ int MPID_VIA_rendezvous_start(void *buf, int len, int src_lrank, int tag,
     }
 
     /* fill in the packet */
-    PACKET_SET_HEADER_NR(packet, c, VIADEV_PACKET_RENDEZVOUS_START);
+    PACKET_SET_HEADER_NFR(packet, c, VIADEV_PACKET_RENDEZVOUS_START);
     PACKET_SET_ENVELOPE(packet, context_id, tag, len, src_lrank);
     packet->sreq = REQ_TO_ID(shandle);
 
@@ -319,13 +319,13 @@ int MPID_VIA_eager_send(void *buf, int len, int src_lrank, int tag,
         v = &(c->RDMA_send_buf[c->phead_RDMA_send]);
         h = (viadev_packet_eager_start *) v->buffer;
         /* set up the packet */
-        if(!NR_ENABLED) {
+        if(!viadev_use_nfr) {
             PACKET_SET_ENVELOPE((&viadev.match_hdr), context_id, tag, len, src_lrank);
             PACKET_SET_CREDITS(((viadev_packet_header *) &viadev.match_hdr.header), c);
         } else {
             PACKET_SET_ENVELOPE((&v->match_hdr), context_id, tag, len, src_lrank);
             PACKET_SET_CREDITS(((viadev_packet_header *) &v->match_hdr.header), c);
-            NR_SET_ACK(((viadev_packet_header *) &v->match_hdr.header), c);
+            NFR_SET_ACK(((viadev_packet_header *) &v->match_hdr.header), c);
         }
 
 #ifdef EARLY_SEND_COMPLETION
@@ -336,7 +336,7 @@ int MPID_VIA_eager_send(void *buf, int len, int src_lrank, int tag,
 #endif
 
         if (search_header_cache(c, 
-                    (NR_ENABLED ?
+                    (viadev_use_nfr ?
                     (viadev_packet_eager_start *)&v->match_hdr:
                     (viadev_packet_eager_start *)&viadev.match_hdr))) {
             PACKET_SET_HEADER_OPT(h, c, FAST_EAGER_CACHED);
@@ -352,7 +352,7 @@ int MPID_VIA_eager_send(void *buf, int len, int src_lrank, int tag,
             PACKET_SET_HEADER_OPT(h, c, VIADEV_PACKET_EAGER_START);
 
             /* Set some of the credit fields */
-            if(!NR_ENABLED) {
+            if(!viadev_use_nfr) {
                 h->header.vbuf_credit = viadev.match_hdr.header.vbuf_credit;
                 h->header.rdma_credit = viadev.match_hdr.header.rdma_credit;
                 h->header.remote_credit = viadev.match_hdr.header.remote_credit;
@@ -361,7 +361,7 @@ int MPID_VIA_eager_send(void *buf, int len, int src_lrank, int tag,
                 h->header.rdma_credit = v->match_hdr.header.rdma_credit;
                 h->header.remote_credit = v->match_hdr.header.remote_credit;
             }
-            if (NR_ENABLED) {
+            if (viadev_use_nfr) {
                 h->header.ack = v->match_hdr.header.ack;
             }
             
@@ -405,7 +405,7 @@ int MPID_VIA_eager_send(void *buf, int len, int src_lrank, int tag,
         bytes_sent = h->bytes_in_this_packet;
 
         /* set up the packet */
-        PACKET_SET_HEADER_NR(h, c, VIADEV_PACKET_EAGER_START);
+        PACKET_SET_HEADER_NFR(h, c, VIADEV_PACKET_EAGER_START);
         PACKET_SET_ENVELOPE(h, context_id, tag, len, src_lrank);
 
 #ifdef EARLY_SEND_COMPLETION
@@ -435,7 +435,7 @@ int MPID_VIA_eager_send(void *buf, int len, int src_lrank, int tag,
             databuf = ((char *) d) + sizeof(viadev_packet_eager_next);
 
             /* set up the packet */
-            PACKET_SET_HEADER_NR(d, c, VIADEV_PACKET_EAGER_NEXT);
+            PACKET_SET_HEADER_NFR(d, c, VIADEV_PACKET_EAGER_NEXT);
 
             /* figure out how much data to send in this packet */
             d->bytes_in_this_packet = len - bytes_sent;
@@ -487,7 +487,7 @@ int MPID_VIA_eager_send(void *buf, int len, int src_lrank, int tag,
     databuf = ((char *) h) + sizeof(viadev_packet_eager_start);
 
     /* set up the packet */
-    PACKET_SET_HEADER_NR(h, c, VIADEV_PACKET_EAGER_START);
+    PACKET_SET_HEADER_NFR(h, c, VIADEV_PACKET_EAGER_START);
     PACKET_SET_ENVELOPE(h, context_id, tag, len, src_lrank);
 
     /* figure out how much data to send in this packet */
@@ -534,7 +534,7 @@ int MPID_VIA_eager_send(void *buf, int len, int src_lrank, int tag,
         databuf = ((char *) d) + sizeof(viadev_packet_eager_next);
 
         /* set up the packet */
-        PACKET_SET_HEADER_NR(d, c, VIADEV_PACKET_EAGER_NEXT);
+        PACKET_SET_HEADER_NFR(d, c, VIADEV_PACKET_EAGER_NEXT);
 
         /* figure out how much data to send in this packet */
         d->bytes_in_this_packet = len - bytes_sent;
@@ -595,7 +595,7 @@ void viadev_rput(viadev_connection_t * c, vbuf * v, void *local_address,
                  uint32_t remote_memhandle, int nbytes)
 {
     void *buffer = VBUF_BUFFER_START(v);
-    viadev_packet_rput *h = (viadev_packet_header *)buffer;
+    viadev_packet_rput *h = (viadev_packet_rput *)buffer;
     D_PRINT("viadev_rput: RDMA write\n");
     vbuf_init_rput(v, local_address, local_memhandle,
                    remote_address, remote_memhandle, nbytes);

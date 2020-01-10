@@ -6673,7 +6673,7 @@ rm -f conftest*
 	CFLAGS="$CFLAGSSAV"
         # This isn't quite right, but it will work for some systems 
         # Export the shared option to the MPI-2-C++ configure
-        CXXFLAGS_FOR_SHARED=$CC_SHARED_OPT
+        CXXFLAGS="$CXXFLAGS $CC_SHARED_OPT"
     fi
     if test "$SHAREDKIND" != "ignore" ; then
         # Fortran choices

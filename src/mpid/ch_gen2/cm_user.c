@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2009, The Ohio State University. All rights
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
  * reserved.
  *
  * This file is part of the MVAPICH software package developed by the
@@ -75,7 +75,7 @@ void odu_enable_qp(int peer, struct ibv_qp * qp)
 #endif
 #endif
 
-    if (NR_ENABLED) {
+    if (viadev_use_nfr) {
         WAITING_LIST_INIT(&c->waiting_for_ack);
         WAITING_LIST_INIT(&c->rndv_inprocess);
         c->pending_acks = 0;

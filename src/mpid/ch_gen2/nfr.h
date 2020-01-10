@@ -1,7 +1,19 @@
-/* Copyright (c) 2008, Mellanox Technologis. All rights reserved. */
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
+ * reserved.
+ *
+ * This file is part of the MVAPICH software package developed by the
+ * team members of The Ohio State University's Network-Based Computing
+ * Laboratory (NBCL), headed by Professor Dhabaleswar K. (DK) Panda.
+ *
+ * For detailed copyright and licensing information, please refer to the
+ * copyright file COPYRIGHT_MVAPICH in the top level MPICH directory.
+ *
+ */
 
-#ifndef _NR_H
-#define _NR_H
+/* Copyright (c) 2008, Mellanox Technologies. All rights reserved. */
+
+#ifndef _NFR_H
+#define _NFR_H
 
 #include <stdio.h>
 #include "viapacket.h"
@@ -9,10 +21,6 @@
 #include "vbuf.h"
 #include "viapriv.h"
 
-
-//#define NR_ENABLED 1 /* set to 1 for Network Recovery mode */
-
-extern uint8_t NR_ENABLED;
 
 #define DEBUG00 200 /* No debug prints - It is default debug level */
 #define DEBUG01 201 
@@ -22,7 +30,7 @@ extern uint8_t NR_ENABLED;
 /* ch_gen2 layer debug prints are disabled by default. In order
  * to use the macro you need add -DVIADEV_DEBUG to CFLAGS
  */
-#define NR_PRINT(fmt, args...)                                                                \
+#define NFR_PRINT(fmt, args...)                                                                \
         {                                                                                     \
             fprintf(stderr, "[%d][(%s)%s:%d]", viadev.me, __FUNCTION__, __FILE__, __LINE__);  \
             fprintf(stderr, fmt, ## args);                                                    \
@@ -43,37 +51,37 @@ extern uint8_t NR_ENABLED;
 
 #endif /* VIADEV_DEBUG */
 
-#define NR_MAX_FAILURES 250
-#define NR_DEFAULT_TIMEOUT_ON_ERROR 1000
-#define NR_DEFAULT_TIMEOUT_ON_RESTART 1000
+#define NFR_MAX_FAILURES 250
+#define NFR_DEFAULT_TIMEOUT_ON_ERROR 1000
+#define NFR_DEFAULT_TIMEOUT_ON_RESTART 1000
 
-extern int nr_max_failures;
-extern volatile int nr_fatal_error;
-extern int nr_num_of_bad_connections;
+extern int nfr_max_failures;
+extern volatile int nfr_fatal_error;
+extern int nfr_num_of_bad_connections;
 
 #define WAITING_LIST_IS_EMPTY(list) (list->size > 0 ? 0 : 1)
-#define NR_VBUF_IS_IB_COMPLETED(v) (1 == v->ib_completed)
-#define NR_VBUF_IS_SW_COMPLETED(v) (1 == v->sw_completed)
+#define NFR_VBUF_IS_IB_COMPLETED(v) (1 == v->ib_completed)
+#define NFR_VBUF_IS_SW_COMPLETED(v) (1 == v->sw_completed)
 #define WAITING_LIST_LEN(list) ((list)->size)
 #define VBUF_TYPE(v) (((viadev_packet_header *) VBUF_BUFFER_START(v))->type)
 
-typedef enum nr_qp_state {
+typedef enum nfr_qp_state {
     QP_DOWN,            /* QP in error state  */
     QP_REC,             /* QP was reconnected */
     QP_REC_D,           /* QP was reconnect was descovered */
     QP_UP               /* QP is ok           */
-} nr_qp_state;
+} nfr_qp_state;
 
-enum nr_message_type {
-    NR_REQ = 1, /* NR reconnect request */
-    NR_REP,     /* NR reply on reconnect request */
-    NR_FIN,     /* NR FIN request - send after all RNDV retransmission */
+enum nfr_message_type {
+    NFR_REQ = 1, /* NFR reconnect request */
+    NFR_REP,     /* NFR reply on reconnect request */
+    NFR_FIN,     /* NFR FIN request - send after all RNDV retransmission */
 };
 
-enum nr_fatal {
-    NO_FATAL, /* NR reconnect request */
-    FATAL,     /* NR reply on reconnect request */
-    IN_FATAL,     /* NR FIN request - send after all RNDV retransmission */
+enum nfr_fatal {
+    NO_FATAL, /* NFR reconnect request */
+    FATAL,     /* NFR reply on reconnect request */
+    IN_FATAL,     /* NFR FIN request - send after all RNDV retransmission */
 };
 
 #define WAITING_LIST_INIT(list)                         \
@@ -109,44 +117,44 @@ enum nr_fatal {
 
 #define WAITING_LIST_GET_END(l)   (&(l)->sentinel)
 
-#define NR_INCREASE_PENDING(c)      \
+#define NFR_INCREASE_PENDING(c)      \
     do {                            \
-        if (NR_ENABLED) {           \
+        if (viadev_use_nfr) {           \
             c->pending_acks++;      \
         }                           \
     } while(0)
 
-#define NR_RELEASE(l, n)            \
+#define NFR_RELEASE(l, n)            \
     do {                            \
-        if (NR_ENABLED && n > 0) {  \
-            nr_release_acked(l, n); \
+        if (viadev_use_nfr && n > 0) {  \
+            nfr_release_acked(l, n); \
         }                           \
     } while (0)
 
-#define NR_ADD_TO_LIST(l, v)        \
+#define NFR_ADD_TO_LIST(l, v)        \
     do {                            \
-        if (NR_ENABLED) {           \
-            nr_add_to_list(l, v);   \
+        if (viadev_use_nfr) {           \
+            nfr_add_to_list(l, v);   \
         }                           \
     } while(0)
 
-#define NR_ADD_TO_LIST_FAST(l, v)                       \
+#define NFR_ADD_TO_LIST_FAST(l, v)                       \
     do {                                                \
-        if (NR_ENABLED) {                               \
+        if (viadev_use_nfr) {                               \
             WAITING_LIST_APPEND(l, v);                  \
         }                                               \
     } while(0)
 
-#define NR_RNDV_ADD(l, r)                   \
+#define NFR_RNDV_ADD(l, r)                   \
     do {                                    \
-        if (NR_ENABLED) {                   \
+        if (viadev_use_nfr) {                   \
             WAITING_LIST_APPEND((l), r);    \
         }                                   \
     } while(0)                              \
 
-#define NR_REMOVE_FROM_WAITING_LIST(l, r)   \
+#define NFR_REMOVE_FROM_WAITING_LIST(l, r)   \
     do {                                    \
-        if (NR_ENABLED) {                   \
+        if (viadev_use_nfr) {                   \
             WAITING_LIST_REMOVE((l), r);    \
         }                                   \
     } while(0)                              \
@@ -158,26 +166,26 @@ enum nr_fatal {
         p->header.id   = c->next_packet_tosend++;                   \
     } while(0)
 
-#define PACKET_SET_HEADER_NR(p, c, t)                               \
+#define PACKET_SET_HEADER_NFR(p, c, t)                               \
     do {                                                            \
         p->header.type = t;                                         \
         p->header.src_rank = viadev.me;                             \
         p->header.id   = c->next_packet_tosend++;                   \
-        if (NR_ENABLED) {                                           \
+        if (viadev_use_nfr) {                                           \
             p->header.ack = c->pending_acks;                        \
             c->pending_acks = 0;                                    \
         }                                                           \
     } while(0)
 
-#define NR_SET_ACK(h, c)              \
+#define NFR_SET_ACK(h, c)              \
     do {                              \
-        if (NR_ENABLED) {             \
+        if (viadev_use_nfr) {             \
             (h)->ack = c->pending_acks; \
             c->pending_acks = 0;      \
         }                             \
     } while(0)
 
-#define PACKET_SET_HEADER_NR_R(p, c) {                          \
+#define PACKET_SET_HEADER_NFR_R(p, c) {                          \
     p->header.type = VIADEV_PACKET_NOOP;                        \
     p->header.src_rank = viadev.me;                             \
     p->header.ack = c->next_packet_expected;                    \
@@ -186,20 +194,20 @@ enum nr_fatal {
     c->rdma_credit = c->p_RDMA_recv_tail;                       \
 }
 
-#define PACKET_SET_HEADER_NR_REQ(p, c) {                        \
-    PACKET_SET_HEADER_NR_R(p, c)                                \
-    p->header.id = NR_REQ;                                      \
+#define PACKET_SET_HEADER_NFR_REQ(p, c) {                        \
+    PACKET_SET_HEADER_NFR_R(p, c)                                \
+    p->header.id = NFR_REQ;                                      \
 }
 
-#define PACKET_SET_HEADER_NR_REP(p, c) {                        \
-    PACKET_SET_HEADER_NR_R(p, c)                                \
-    p->header.id = NR_REP;                                      \
+#define PACKET_SET_HEADER_NFR_REP(p, c) {                        \
+    PACKET_SET_HEADER_NFR_R(p, c)                                \
+    p->header.id = NFR_REP;                                      \
 }
 
-#define PACKET_SET_HEADER_NR_FIN(p, c) {                        \
+#define PACKET_SET_HEADER_NFR_FIN(p, c) {                        \
     p->header.type = VIADEV_PACKET_NOOP;                        \
     p->header.src_rank = viadev.me;                             \
-    p->header.id = NR_FIN;                                      \
+    p->header.id = NFR_FIN;                                      \
     p->header.ack = 0;                                          \
 }
 
@@ -207,7 +215,7 @@ enum nr_fatal {
     p->header.type = VIADEV_PACKET_NOOP;                        \
     p->header.src_rank = viadev.me;                             \
     p->header.id = 0;                                           \
-    if (NR_ENABLED) {                                           \
+    if (viadev_use_nfr) {                                           \
         p->header.ack = c->pending_acks;                        \
         c->pending_acks = 0;                                    \
     }                                                           \
@@ -217,18 +225,18 @@ enum nr_fatal {
     ((cached->header.vbuf_credit == h->header.vbuf_credit) &&                            \
      (cached->header.remote_credit == h->header.remote_credit) &&                        \
      (cached->header.rdma_credit == h->header.rdma_credit) &&                            \
-     ((0 == NR_ENABLED ) || (1 == NR_ENABLED && cached->header.ack == h->header.ack)) && \
+     ((0 == viadev_use_nfr ) || (1 == viadev_use_nfr && cached->header.ack == h->header.ack)) && \
      (cached->envelope.context == h->envelope.context) &&                                \
      (cached->envelope.tag == h->envelope.tag) &&                                        \
      (cached->envelope.src_lrank == h->envelope.src_lrank))
 
-#define NR_SEND_ACK_IFNEEDED(c)                                                         \
+#define NFR_SEND_ACK_IFNEEDED(c)                                                         \
     do {                                                                                \
-        if (NR_ENABLED && !c->progress_recov_mode && /*Pasha:need review the progress_recov*/\
-                VIADEV_UNLIKELY(c->pending_acks > viadev_nr_ack_threshold)) {           \
+        if (viadev_use_nfr && !c->progress_recov_mode && /*Pasha:need review the progress_recov*/\
+                VIADEV_UNLIKELY(c->pending_acks > viadev_nfr_ack_threshold)) {           \
                 vbuf *v = get_vbuf();                                                   \
                 viadev_packet_noop *p = (viadev_packet_noop *) VBUF_BUFFER_START(v);    \
-                V_PRINT(DEBUG03, "NR %3d SEND NR ACK with %d credits\n", c->global_rank,\
+                V_PRINT(DEBUG03, "NFR %3d SEND NFR ACK with %d credits\n", c->global_rank,\
                         c->pending_acks);                                               \
                 PACKET_SET_HEADER_NOOP(p, c);                                           \
                 vbuf_init_send(v, sizeof(viadev_packet_header));                        \
@@ -305,20 +313,20 @@ enum nr_fatal {
 char* type2name(int type);
 char* padding2name(int name);
 
-void nr_init();
-void nr_finalize();
-void nr_process_retransmit (viadev_connection_t *c, viadev_packet_header *header);
-void nr_incoming_nr_req (viadev_packet_header *h, viadev_connection_t *c);
-void nr_incoming_nr_rep (viadev_packet_header *h, viadev_connection_t *c);
-void nr_incoming_nr_fin (viadev_connection_t *c);
-void nr_prepare_qp(int peer);
-int nr_process_qp_error(struct ibv_wc *sc);
-int nr_restart_hca ();
+void nfr_init();
+void nfr_finalize();
+void nfr_process_retransmit (viadev_connection_t *c, viadev_packet_header *header);
+void nfr_incoming_nfr_req (viadev_packet_header *h, viadev_connection_t *c);
+void nfr_incoming_nfr_rep (viadev_packet_header *h, viadev_connection_t *c);
+void nfr_incoming_nfr_fin (viadev_connection_t *c);
+void nfr_prepare_qp(int peer);
+int nfr_process_qp_error(struct ibv_wc *sc);
+int nfr_restart_hca ();
 
-static inline void nr_try_to_release_ib_comp(vbuf *v)
+static inline void nfr_try_to_release_ib_comp(vbuf *v)
 {
     assert(v->ib_completed == 0);
-    if (NR_VBUF_IS_SW_COMPLETED(v)){
+    if (NFR_VBUF_IS_SW_COMPLETED(v)){
 #ifdef ADAPTIVE_RDMA_FAST_PATH
         if (v->padding == NORMAL_VBUF_FLAG) {
             release_vbuf(v);
@@ -334,36 +342,36 @@ static inline void nr_try_to_release_ib_comp(vbuf *v)
     }
 }
 
-static inline void nr_try_to_release_rndv_start(ack_list *list, vbuf *v)
+static inline void nfr_try_to_release_rndv_start(ack_list *list, vbuf *v)
 {
     viadev_packet_header* h = (viadev_packet_header*)v->buffer;
 
     assert(0 == v->sw_completed);
-    V_PRINT(DEBUG03, "NR: RNDV_FIN Releasing %s[%d] waiting list blen [%d] id:%d src:%d",
+    V_PRINT(DEBUG03, "NFR: RNDV_FIN Releasing %s[%d] waiting list blen [%d] id:%d src:%d",
                 type2name(VBUF_TYPE(v)), VBUF_TYPE(v), WAITING_LIST_LEN(list), h->id, h->src_rank);
     WAITING_LIST_REMOVE(list, v);
     V_PRINT(DEBUG03, "after len:%d \n",WAITING_LIST_LEN(list));
 
-    if (NR_VBUF_IS_IB_COMPLETED(v)) {
+    if (NFR_VBUF_IS_IB_COMPLETED(v)) {
         release_vbuf(v); /* otherway ib completen will release it */
-        V_PRINT(DEBUG03, "NR: RNDV_FIN Releasing vbuf\n");
+        V_PRINT(DEBUG03, "NFR: RNDV_FIN Releasing vbuf\n");
     } else {
         v->sw_completed = 1;
-        V_PRINT(DEBUG03, "NR: RNDV_FIN waiting for ib ack\n");
+        V_PRINT(DEBUG03, "NFR: RNDV_FIN waiting for ib ack\n");
     }
 }
 
-#define NR_RELEASE_RNDV_START(l, v)                 \
+#define NFR_RELEASE_RNDV_START(l, v)                 \
     do {                                            \
-        if(NR_ENABLED) {                            \
-            nr_try_to_release_rndv_start((l), (v)); \
+        if(viadev_use_nfr) {                            \
+            nfr_try_to_release_rndv_start((l), (v)); \
         }                                           \
     } while(0) 
 
 #ifdef ADAPTIVE_RDMA_FAST_PATH
 #define RELEASE_VBUF(v)                             \
-    if (NR_ENABLED) {                               \
-        nr_try_to_release_ib_comp(v);               \
+    if (viadev_use_nfr) {                               \
+        nfr_try_to_release_ib_comp(v);               \
     } else {                                        \
         if (v->padding == NORMAL_VBUF_FLAG) {       \
             release_vbuf(v);                        \
@@ -374,8 +382,8 @@ static inline void nr_try_to_release_rndv_start(ack_list *list, vbuf *v)
     }
 #else
 #define RELEASE_VBUF(v)                             \
-    if (NR_ENABLED) {                               \
-        nr_try_to_release_ib_comp(v);               \
+    if (viadev_use_nfr) {                               \
+        nfr_try_to_release_ib_comp(v);               \
     } else {                                        \
         release_vbuf(v);                            \
     }
@@ -383,7 +391,7 @@ static inline void nr_try_to_release_rndv_start(ack_list *list, vbuf *v)
 #endif
 
 
-static inline void nr_add_to_list(ack_list *list, vbuf *v)
+static inline void nfr_add_to_list(ack_list *list, vbuf *v)
 {
     switch(VBUF_TYPE(v)) {
 #ifndef DISABLE_HEADER_CACHING
@@ -396,7 +404,7 @@ static inline void nr_add_to_list(ack_list *list, vbuf *v)
         case VIADEV_PACKET_RENDEZVOUS_REPLY: /* For R3 only */
         case VIADEV_PACKET_R3_DATA:
         case VIADEV_PACKET_R3_ACK:
-            V_PRINT(DEBUG02, "NR: Packet %s[%d][%s] adding vbuf to waiting list len before [%d]\n",
+            V_PRINT(DEBUG02, "NFR: Packet %s[%d][%s] adding vbuf to waiting list len before [%d]\n",
                     type2name(VBUF_TYPE(v)), VBUF_TYPE(v), padding2name(v->padding), WAITING_LIST_LEN(list));
             WAITING_LIST_APPEND(list, v);
             V_PRINT(DEBUG03, " after [%d]\n",
@@ -407,12 +415,12 @@ static inline void nr_add_to_list(ack_list *list, vbuf *v)
     }
 }
 
-static inline void nr_release_acked(ack_list *list, const packet_sequence_t n)
+static inline void nfr_release_acked(ack_list *list, const packet_sequence_t n)
 {
     vbuf *v = NULL, *v_next = NULL;
     int i = n;
     assert(!WAITING_LIST_IS_EMPTY(list));
-    V_PRINT(DEBUG03, "NR: Entering to release flow. list len - %d , pack to release - %d\n",
+    V_PRINT(DEBUG03, "NFR: Entering to release flow. list len - %d , pack to release - %d\n",
             WAITING_LIST_LEN(list), i);
     
     v_next = WAITING_LIST_GET_FIRST(list); /* I do not use for because in feature vbuf may be released */
@@ -432,12 +440,12 @@ static inline void nr_release_acked(ack_list *list, const packet_sequence_t n)
         /* remove the vbuf from waiting for ack */  
         i--;
         WAITING_LIST_REMOVE(list, v);
-        if (NR_VBUF_IS_IB_COMPLETED(v)) {
+        if (NFR_VBUF_IS_IB_COMPLETED(v)) {
             release_vbuf(v); /* otherway ib completen will release it */
         } else {
             v->sw_completed = 1;
         }
-        V_PRINT(DEBUG01, "NR: Released ACKED Packet %s[%d][%s] list len [%d]\n",
+        V_PRINT(DEBUG01, "NFR: Released ACKED Packet %s[%d][%s] list len [%d]\n",
                 type2name(VBUF_TYPE(v)), VBUF_TYPE(v), padding2name(v->padding), WAITING_LIST_LEN(list));
     }
     assert(0 == i);

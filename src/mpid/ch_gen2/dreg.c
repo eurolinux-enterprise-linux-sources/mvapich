@@ -12,7 +12,7 @@
  *          Michael Welcome  <mlwelcome@lbl.gov>
  */
 
-/* Copyright (c) 2002-2009, The Ohio State University. All rights
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
  * reserved.
  *
  * This file is part of the MVAPICH software package developed by the
@@ -145,7 +145,7 @@ static dreg_region *deregister_mr_array;
  * the total number of reg. cache
  * entries
  */
-static int n_dereg_mr;
+static int n_dereg_mr = 0;
 
 /* Keep free list of VMA data structs
  * and entries */
@@ -628,8 +628,6 @@ void dreg_init()
 
     memset(deregister_mr_array, 0,
             sizeof(dreg_region) * viadev_ndreg_entries);
-
-    n_dereg_mr = 0;
 
     INIT_FREE_LIST(&vma_free_list);
 

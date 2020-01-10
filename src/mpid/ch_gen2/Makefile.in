@@ -55,7 +55,7 @@ HEADERS  = comm.h cookie.h datatype.h mpid.h mpid_bind.h mpid_time.h  \
 	   mpiddev.h queue.h req.h reqalloc.h sbcnst2.h  cm_user.h\
 	   vbuf.h viapacket.h viapriv.h viutil.h viaparam.h cm.h\
 	   attach.h mpid_smpi.h collutils.h bcast_info.h avl.h avl_types.h\
-           coll_shmem.h async_progress.h nr.h
+           coll_shmem.h async_progress.h nfr.h
 
 MPICHSOURCE = queue.c sbcnst2.c tr2.c sbcnst2.h tr2.h
 MPICHOBJECTS = queue.o sbcnst2.o tr2.o
@@ -68,7 +68,7 @@ VIASOURCE   =  viainit.c viasend.c viarecv.c viacheck.c \
 	   collutils.c intra_rdma_barrier.c \
        mpid_mcast.c mcst_grp.c ibmcgrp.c \
 	   crc32h.c avl.c mem_hooks.c viacoalesce.c shmem_coll.c\
-           async_progress.c  calltrace.c objtrace.c nr.c
+           async_progress.c  calltrace.c objtrace.c nfr.c
 
 VIAOBJECTS  = viainit.o viasend.o viarecv.o viacheck.o \
 	   viapriv.o viaparam.o viutil.o vbuf.o cm_user.o\
@@ -77,7 +77,7 @@ VIAOBJECTS  = viainit.o viasend.o viarecv.o viacheck.o \
 	   mpid_misc.o dreg.o mpid_smpi.o collutils.o intra_rdma_barrier.o \
        mpid_mcast.o mcst_grp.o ibmcgrp.o crc32h.o avl.o \
 	   mem_hooks.o viacoalesce.o shmem_coll.o async_progress.o calltrace.o \
-	   objtrace.o nr.o
+	   objtrace.o nfr.o
            
 
 # default_all is the target used by the MPICH build. It can be optimized

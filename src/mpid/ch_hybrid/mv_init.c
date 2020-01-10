@@ -1,4 +1,4 @@
-/* Copyright (c) 2002-2009, The Ohio State University. All rights
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
  * reserved.
  *
  * This file is part of the MVAPICH software package developed by the
@@ -380,8 +380,6 @@ int MPID_MV_Init(int *argc, char ***argv, int *size, int *rank)
     if(!disable_shared_mem) {
         odu_init_SMP();
     }   
-
-    free(hostnames_od);
 #endif
 
     /* need to figure out if reliability is being used */
@@ -452,6 +450,10 @@ int MPID_MV_Init(int *argc, char ***argv, int *size, int *rank)
     dreg_init();
 
     pmgr_close();
+
+#ifdef _SMP_
+    free(hostnames_od);
+#endif
 
     return 0;
 }

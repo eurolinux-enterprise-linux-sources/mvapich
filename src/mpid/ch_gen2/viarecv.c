@@ -12,7 +12,7 @@
  *          Michael Welcome  <mlwelcome@lbl.gov>
  */
 
-/* Copyright (c) 2002-2009, The Ohio State University. All rights
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
  * reserved.
  *
  * This file is part of the MVAPICH software package developed by the
@@ -34,7 +34,7 @@
 #include "viaparam.h"
 #include "mpid_smpi.h"
 #include "sig_handler.h"
-#include "nr.h"
+#include "nfr.h"
 
 #ifdef MCST_SUPPORT
 #include "bcast_info.h"
@@ -79,7 +79,7 @@ void MPID_VIA_Irecv(void *buf, int len, int src_lrank, int tag,
     rhandle->protocol = VIADEV_PROTOCOL_RENDEZVOUS_UNSPECIFIED;
     rhandle->can_cancel = 1;
 
-    if (NR_ENABLED) {
+    if (viadev_use_nfr) {
         rhandle->fin = NULL;
         rhandle->next = NULL;
         rhandle->prev = NULL;
@@ -233,7 +233,7 @@ void viadev_recv_rget(MPIR_RHANDLE * rhandle)
     }
 
 	/* Trac #239. */
-    if(NR_ENABLED) {
+    if(viadev_use_nfr) {
         if (VIADEV_LIKELY(0 == rhandle->was_retransmitted)) {
             rhandle->dreg_entry = NULL;
             viadev_register_recvbuf_if_possible(rhandle);
@@ -269,9 +269,9 @@ void viadev_recv_rget(MPIR_RHANDLE * rhandle)
 
     rget_packet->rreq = rhandle;
 
-    if (NR_ENABLED && 0 == rhandle->was_retransmitted) {
+    if (viadev_use_nfr && 0 == rhandle->was_retransmitted) {
         assert(rhandle->prev == NULL && rhandle->next ==NULL);
-        NR_RNDV_ADD(&(c->rndv_inprocess), rhandle);
+        NFR_RNDV_ADD(&(c->rndv_inprocess), rhandle);
     }
 
     V_PRINT(DEBUG03, "RDMA read on id %d key %d\n", rhandle->sn, rhandle->remote_memhandle_rkey);
@@ -287,7 +287,7 @@ void viadev_rget(viadev_connection_t * c, vbuf * v, void *local_address,
                  uint32_t remote_memhandle, int nbytes)
 {
     void *buffer = VBUF_BUFFER_START(v);
-    viadev_packet_rget *h = (viadev_packet_header *)buffer;
+    viadev_packet_rget *h = (viadev_packet_rget *)buffer;
     V_PRINT(DEBUG03, "viadev_rget: RDMA read\n");
 
     vbuf_init_rget(v, local_address, local_memhandle,
@@ -363,7 +363,7 @@ void viadev_copy_unexpected_handle_to_user_handle(MPIR_RHANDLE * rhandle,
     rhandle->protocol = unexpected->protocol;
     rhandle->coalesce_data_buf = unexpected->coalesce_data_buf;
 
-    if(NR_ENABLED) {
+    if(viadev_use_nfr) {
         rhandle->sn = unexpected->sn;
     }
 
@@ -539,7 +539,7 @@ void viadev_rendezvous_reply(MPIR_RHANDLE * rhandle)
     v = get_vbuf();
     packet = (viadev_packet_rendezvous_reply *) VBUF_BUFFER_START(v);
 
-    PACKET_SET_HEADER_NR(packet,
+    PACKET_SET_HEADER_NFR(packet,
                         ((viadev_connection_t *) rhandle->connection),
                         VIADEV_PACKET_RENDEZVOUS_REPLY);
 

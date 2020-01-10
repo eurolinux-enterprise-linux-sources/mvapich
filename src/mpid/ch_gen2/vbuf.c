@@ -12,7 +12,7 @@
  *          Michael Welcome  <mlwelcome@lbl.gov>
  */
 
-/* Copyright (c) 2002-2009, The Ohio State University. All rights
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
  * reserved.
  *
  * This file is part of the MVAPICH software package developed by the
@@ -29,7 +29,7 @@
 
 #include "vbuf.h"
 #include "viutil.h"
-#include "nr.h"
+#include "nfr.h"
 #include "viapriv.h"
 
 #include "dreg.h"
@@ -323,7 +323,7 @@ vbuf *get_vbuf(void)
 
     v->ref_count = 0;
     v->len = 0;
-    if(NR_ENABLED) {
+    if(viadev_use_nfr) {
         v->ib_completed = 0;
         v->sw_completed = 0;
         v->prev = NULL;

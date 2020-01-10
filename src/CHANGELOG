@@ -4,6 +4,59 @@ MVAPICH Changelog
 This file briefly describes the latest changes to MVAPICH software package. The
 logs are arranged in the "most recent first" order.
 
+
+01/28/2010
+* Merge in changes to include `Network Fault Resiliency' support,
+  jointly with Pavel Shamis <pasha@mellanox.co.il>
+
+01/12/2010
+* Fix for Hybrid-XRC failures where SMP was disabled
+
+12/16/2009
+* Added support for RDMAoE
+
+12/08/2009
+* Changing the mvapich.conf file to indicate that AFFINITY should be on by
+default.
+
+12/04/2009
+* Patches contributed by Adam Moody @ LLNL
+  * No RSH/SSH for localhost
+  * Use user shell instead of bash
+  * Turn off registration cache if ptmalloc is turned off
+  * Enable Totalview with -tv
+  * Enhancement to mpirun to check path for application (in addition to current directory)
+  * mpirun timeout more descriptive in case serial jobs are launched through mpirun_rsh
+* Suggested by Christian Guggenberger <christian.guggenberger@rzg.mpg.de>
+  * Default hostfile in ~/.mpirun_hostfile also controlled by env MPIRUN_HOSTFILE
+
+11/16/2009
+* Fixing RDMA Get failure with compilation and other tests.
+
+08/17/2009
+* Fix issues with p_key handling
+
+06/29/2009
+* Update legacy c++ to be more conforming
+* Use the c++ header file iostream and take namespaces into account.
+
+06/09/2009
+* Make sure that we keep track of R3 packets in our ACK counter
+* Fixes an OOM error with OSU bw when R3 is used
+
+05/18/2009
+* De-register stale memory regions earlier to prevent 
+excess allocations of physical memory
+
+05/14/2009
+* Add error handling patches in connection management.
+
+03/13/2009
+* Unify the return values of MPID_SHMEM_BCAST_init for all the devices.
+
+03/10/2009
+* Close shared memory files properly in finalize.
+
 11/12/2008
 * Correct issue when activating XRC connections that are shared.
 

@@ -15,8 +15,8 @@ if [ -z "$ARCH" ]; then
 fi
 
 # Mandatory variables.  All are checked except CXX and F90.
-IBHOME=${IBHOME:-/usr/local/ofed}
-IBHOME_LIB=${IBHOME_LIB:-/usr/local/ofed/lib64}
+IBHOME=${IBHOME:-/usr}
+IBHOME_LIB=${IBHOME_LIB:-/usr/lib64}
 PREFIX=${PREFIX:-/usr/local/mvapich}
 export CC=${CC:-gcc}
 export CXX=${CXX:-g++}
@@ -84,6 +84,14 @@ fi
 export LIBS=${LIBS:--L${IBHOME_LIB} -Wl,-rpath=${IBHOME_LIB} -libverbs -libumad -lpthread}
 export FFLAGS=${FFLAGS:--L${IBHOME_LIB}}
 export CFLAGS=${CFLAGS:--D${ARCH} ${PROCESSOR} ${PTMALLOC} -DEARLY_SEND_COMPLETION -DMEMORY_SCALE -DVIADEV_RPUT_SUPPORT -D_SMP_ -D_SMP_RNDV_ -DXRC -DCH_GEN2 -D_GNU_SOURCE ${COMPILER_FLAG}  -I${IBHOME}/include $OPT_FLAG}
+
+echo -n "Checking for RDMAoE support: "
+if ( grep IBV_LINK_LAYER_ETHERNET ${IBHOME}/include/infiniband/verbs.h &> /dev/null ) ; then
+        export CFLAGS="$CFLAGS -DTRANSPORT_RDMAOE_AVAIL"
+        echo yes
+else
+        echo no
+fi
 
 export MPIRUN_CFLAGS="${MPIRUN_CFLAGS} -DLD_LIBRARY_PATH_MPI=\\\"${PREFIX}/lib/shared\\\" -DMPI_PREFIX=\\\"${PREFIX}/\\\" -DPARAM_GLOBAL=\\\"${PREFIX}/etc/mvapich.conf\\\""
 

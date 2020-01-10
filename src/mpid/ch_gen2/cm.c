@@ -1,5 +1,5 @@
 
-/* Copyright (c) 2002-2009, The Ohio State University. All rights
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
  * reserved.
  *
  * This file is part of the MVAPICH software package developed by the
@@ -37,7 +37,7 @@ typedef struct cm_msg {
     uint32_t server_rank;
     uint32_t client_rank;
     uint8_t msg_type;
-    uint16_t lid;
+    lgid lgid;
     uint32_t qpn;
     uint32_t ud_qpn;   /* NR - New UD qp number */
     uint16_t cid;      /* NR - Connection ID. On each reconnect/connect we will increase it */
@@ -83,7 +83,9 @@ struct ibv_cq *cm_ud_send_cq;
 struct ibv_mr *cm_ud_mr;
 struct ibv_ah **cm_ah;          /*Array of address handles of peers */
 uint32_t *cm_ud_qpn;            /*Array of ud pqn of peers */
-uint16_t *cm_lid;               /*Array of lid of all procs */
+
+lgid *cm_lgid;               /*Array of lid/gid of all procs */
+
 void *cm_ud_buf;
 void *cm_ud_send_buf;           /*length is set to 1 */
 void *cm_ud_recv_buf;
@@ -343,7 +345,7 @@ int cm_post_ud_packet(cm_msg * msg)
 /*move qp to rts*/
 
 int cm_enable_qp_init_to_rts(int peer, struct ibv_qp *qp,
-                             uint16_t dlid, int dqpn)
+                             lgid dlgid, int dqpn)
 {
     struct ibv_qp_attr attr;
     int rc;
@@ -352,13 +354,20 @@ int cm_enable_qp_init_to_rts(int peer, struct ibv_qp *qp,
     memcpy(&attr, &(cm_ib_qp_attr.rc_qp_attr_to_rtr),
            sizeof(struct ibv_qp_attr));
     attr.dest_qp_num = dqpn;
-    attr.ah_attr.dlid = dlid;
 
     if (!disable_lmc) {
-        attr.ah_attr.dlid = dlid + (viadev.me + peer) % (power_two(viadev.lmc));
+        attr.ah_attr.dlid = dlgid.lid + (viadev.me + peer) % (power_two(viadev.lmc));
         attr.ah_attr.src_path_bits =
             viadev_default_src_path_bits + 
             (viadev.me + peer) % (power_two(viadev.lmc));
+    } else {
+        if (viadev_eth_over_ib){
+            attr.ah_attr.grh.dgid = dlgid.gid;
+        } else {
+            attr.ah_attr.dlid = dlgid.lid;
+        }
+        attr.ah_attr.src_path_bits =
+            viadev_default_src_path_bits;
     }
     
     if ((rc = ibv_modify_qp(qp, &attr, cm_ib_qp_attr.rc_qp_mask_to_rtr))) {
@@ -386,7 +395,7 @@ int cm_enable_qp_init_to_rts(int peer, struct ibv_qp *qp,
 /*move qp to rtr*/
 
 int cm_enable_qp_init_to_rtr(int peer, struct ibv_qp *qp,
-                             uint16_t dlid, int dqpn)
+                             lgid dlgid, int dqpn)
 {
     struct ibv_qp_attr attr;
 	int rc;
@@ -398,12 +407,23 @@ int cm_enable_qp_init_to_rtr(int peer, struct ibv_qp *qp,
            sizeof(struct ibv_qp_attr));
 
     attr.dest_qp_num = dqpn;
-    attr.ah_attr.dlid = dlid;
 
     if (!disable_lmc) {
-        attr.ah_attr.dlid = dlid + (viadev.me + peer) % (power_two(viadev.lmc));
+        attr.ah_attr.dlid = dlgid.lid + (viadev.me + peer) % (power_two(viadev.lmc));
         attr.ah_attr.src_path_bits =
-            viadev_default_src_path_bits + (viadev.me + peer) % (power_two(viadev.lmc)) ;
+            viadev_default_src_path_bits + 
+            (viadev.me + peer) % (power_two(viadev.lmc));
+    } else {
+        if (viadev_eth_over_ib){
+            attr.ah_attr.grh.dgid = dlgid.gid;
+            /* fprintf(stdout, "[%d] Setting remote MAC %012llx\n", viadev.me, viadev.mac_table[i]); 
+               fflush(stdout);
+               */
+        } else {
+            attr.ah_attr.dlid = dlgid.lid;
+        }
+        attr.ah_attr.src_path_bits =
+            viadev_default_src_path_bits;
     }
 
     if ((rc = ibv_modify_qp(qp, &attr, cm_ib_qp_attr.rc_qp_mask_to_rtr))) {
@@ -590,23 +610,23 @@ int cm_accept_and_cancel(cm_msg * msg)
     CM_DBG("cm_accept_and_cancel Enter");
     
     if (cm_enable_qp_init_to_rtr(msg->client_rank,
-                                 viadev.qp_hndl[msg->client_rank], msg->lid,
+                                 viadev.qp_hndl[msg->client_rank], msg->lgid,
                                  msg->qpn)) {
         CM_ERR("cm_enable_qp_init_to_rtr failed");
         return -1;
     }
 
-    if (!NR_ENABLED || 0 == msg->cid) {
+    if (!viadev_use_nfr || 0 == msg->cid) {
         odu_enable_qp(msg->client_rank, viadev.qp_hndl[msg->client_rank]);
     } else {
-        nr_prepare_qp(msg->client_rank);
+        nfr_prepare_qp(msg->client_rank);
     }
     
     /*Prepare rep msg */
     memcpy(&msg_send, msg, sizeof(cm_msg));
     msg_send.msg_type = CM_MSG_TYPE_REP;
-    msg_send.lid = cm_lid[viadev.me];
-    if(NR_ENABLED)
+    msg_send.lgid = cm_lgid[viadev.me];
+    if(viadev_use_nfr)
         msg_send.cid = cid[msg->client_rank];
     msg_send.qpn = (viadev.qp_hndl[msg->client_rank])->qp_num;
 
@@ -646,8 +666,8 @@ int cm_accept(cm_msg * msg)
     if(!(viadev.qp_hndl[msg->client_rank] = cm_create_rc_qp (msg->client_rank,
                     &flag, 1)))
     {
-    CM_ERR("cm_accept: cm_create_rc_qp failed");
-    return -1;
+        CM_ERR("cm_accept: cm_create_rc_qp failed");
+        return -1;
     }
 
 #ifdef XRC
@@ -655,22 +675,22 @@ int cm_accept(cm_msg * msg)
 #endif
 
     if (cm_enable_qp_init_to_rtr(msg->client_rank,
-                                 viadev.qp_hndl[msg->client_rank], msg->lid,
+                                 viadev.qp_hndl[msg->client_rank], msg->lgid,
                                  msg->qpn)) {
         CM_ERR("cm_enable_qp_init_to_rtr failed");
         return -1;
     }
 
-    if (!NR_ENABLED || 0 == msg->cid) {
+    if (!viadev_use_nfr || 0 == msg->cid) {
         odu_enable_qp(msg->client_rank, viadev.qp_hndl[msg->client_rank]);
     } else {
-        nr_prepare_qp(msg->client_rank);
+        nfr_prepare_qp(msg->client_rank);
     }
 
     /*Prepare rep msg */
     memcpy(&msg_send, msg, sizeof(cm_msg));
     msg_send.msg_type = CM_MSG_TYPE_REP;
-    msg_send.lid = cm_lid[viadev.me];
+    msg_send.lgid = cm_lgid[viadev.me];
     msg_send.qpn = (viadev.qp_hndl[msg->client_rank])->qp_num;
 
     /*Send rep msg */
@@ -714,12 +734,12 @@ int cm_enable(cm_msg * msg)
     CM_DBG("cm_enable Enter");
     if (cm_enable_qp_init_to_rts(msg->server_rank,
                 viadev.qp_hndl[msg->server_rank],
-                msg->lid, msg->qpn)) {
+                msg->lgid, msg->qpn)) {
         CM_ERR("cm_enable_qp_init_to_rtr failed");
         return -1;
     }
 
-    if(NR_ENABLED) {
+    if(viadev_use_nfr) {
         if (0 == msg->cid) {
             odu_enable_qp(msg->server_rank, viadev.qp_hndl[msg->server_rank]);
             cm_conn_state[msg->server_rank] = MPICM_IB_RC_PT2PT;
@@ -758,23 +778,27 @@ static void cm_clean_pending(int peer_rank, int side)
     cm_pending_remove_and_destroy(pending);
 }
 /* Reset connection status */
-static void cm_nr_reset_connection(int peer_rank)
+static void cm_nfr_reset_connection(int peer_rank)
 {
     cm_conn_state[peer_rank] = MPICM_IB_NONE; /* <<<< pasha ?!*/
     cm_state_cli[peer_rank]  = CM_CONN_STATE_C_IDLE;
     cm_state_srv[peer_rank]  = CM_CONN_STATE_S_IDLE;
 }
 
-static int cm_nr_accept_rec(cm_msg * msg)
+static int cm_nfr_accept_rec(cm_msg * msg)
 {
     int flag = 0;
     cm_msg msg_send;
     /*Prepare QP */
-    CM_DBG("cm_nr_accpet_rec Enter");
-    viadev.qp_hndl[msg->client_rank] = cm_create_rc_qp(msg->client_rank, &flag, 0);
+    CM_DBG("cm_nfr_accpet_rec Enter");
+    if(!(viadev.qp_hndl[msg->client_rank] = 
+            cm_create_rc_qp(msg->client_rank, &flag, 0))) {
+        CM_ERR("cm_nfr_accept_rec: cm_create_rc_qp failed");
+        return -1;
+    }
 
     if (cm_enable_qp_init_to_rtr(msg->client_rank,
-                                 viadev.qp_hndl[msg->client_rank], msg->lid,
+                                 viadev.qp_hndl[msg->client_rank], msg->lgid,
                                  msg->qpn)) {
         CM_ERR("cm_enable_qp_init_to_rtr failed");
         return -1;
@@ -785,7 +809,7 @@ static int cm_nr_accept_rec(cm_msg * msg)
     /*Prepare rep msg */
     memcpy(&msg_send, msg, sizeof(cm_msg));
     msg_send.msg_type = CM_MSG_TYPE_REP;
-    msg_send.lid = cm_lid[viadev.me];
+    msg_send.lgid = cm_lgid[viadev.me];
     msg_send.cid = cid[msg->client_rank];
     msg_send.qpn = (viadev.qp_hndl[msg->client_rank])->qp_num;
 
@@ -796,19 +820,26 @@ static int cm_nr_accept_rec(cm_msg * msg)
     }
 
     cm_state_srv[msg->client_rank] = CM_CONN_STATE_S_REQUESTED;
-    CM_DBG("cm_nr_accpet_rec Exit");
+    CM_DBG("cm_nfr_accpet_rec Exit");
     return 0;
 }
 
-static int cm_nr_update_udqp(cm_msg * msg, int peer)
+static int cm_nfr_update_udqp(cm_msg * msg, int peer)
 {
     struct ibv_ah_attr ah_attr;
 
     /* Update LID info */
     memset(&ah_attr, 0, sizeof(ah_attr));
-    ah_attr.is_global = 0;
-    cm_lid[peer] = msg->lid;
-    ah_attr.dlid = cm_lid[peer];
+    cm_lgid[peer] = msg->lgid;
+
+    if(viadev_eth_over_ib) {
+        ah_attr.is_global = 1;
+        ah_attr.grh.hop_limit = 1;
+        ah_attr.grh.dgid = cm_lgid[peer].gid;
+    } else {
+        ah_attr.is_global = 0;
+        ah_attr.dlid = cm_lgid[peer].lid;
+    }
     ah_attr.sl = viadev_default_service_level;
     ah_attr.src_path_bits = 0;
     ah_attr.port_num = viadev_default_port;
@@ -834,7 +865,7 @@ int cm_handle_msg(cm_msg * msg)
                 if (cm_conn_state[msg->client_rank] == MPICM_IB_RC_PT2PT) {
                     /*already existing */
 
-                    if (!NR_ENABLED || cid[msg->client_rank] >= msg->cid) {
+                    if (!viadev_use_nfr || cid[msg->client_rank] >= msg->cid) {
 #ifdef XRC
                     if (viadev_use_xrc) {
                         viadev_connection_t *c = &viadev.connections[msg->client_rank];
@@ -852,7 +883,7 @@ int cm_handle_msg(cm_msg * msg)
                          * Reconnect request */
                         /* 0. Reconnect after fatal from remote peer ? */
                         if (0 != msg->ud_qpn && cm_ud_qpn[msg->client_rank] != msg->ud_qpn) {
-                            if (cm_nr_update_udqp(msg, msg->client_rank) < 0) {
+                            if (cm_nfr_update_udqp(msg, msg->client_rank) < 0) {
                                 CM_ERR("Failed to update qp num from: %d", msg->client_rank);
                                 return -1;
                             }
@@ -860,13 +891,13 @@ int cm_handle_msg(cm_msg * msg)
                         /* 1. Re-Init server client state */
                         CM_DBG("Got reconnect req in CM_CON state MPICM_IB_RC_PT2PT from %d RCID[%d] LCID[%d]",
                                 msg->client_rank, msg->cid,  cid[msg->client_rank]);
-                        cm_nr_reset_connection(msg->client_rank);
+                        cm_nfr_reset_connection(msg->client_rank);
                         /* 2. Update local cid */
                         cid[msg->client_rank] = msg->cid;
                         /* 3. Create new QP */
                         /* 4. Move it from INIT to RTR */
                         /* 5. Send Reply */
-                        cm_nr_accept_rec(msg); /* Steps 3-4-5 */
+                        cm_nfr_accept_rec(msg); /* Steps 3-4-5 */
                         /* We do not touch the OLD qp, MPI will detect the error on MPI level
                          * and will try to reconnect. It will see that QP number is different from
                          * new one and will not try to reconect */
@@ -874,7 +905,7 @@ int cm_handle_msg(cm_msg * msg)
                     }
                 } else if (cm_state_srv[msg->client_rank] !=
                         CM_CONN_STATE_S_IDLE) {
-                    if (!NR_ENABLED || cid[msg->client_rank] >= msg->cid) {
+                    if (!viadev_use_nfr || cid[msg->client_rank] >= msg->cid) {
                         /*already a pending request from that peer */
                         return 0;
                     } else {
@@ -889,13 +920,13 @@ int cm_handle_msg(cm_msg * msg)
                         /* We may close the exist qp because it never was used by upper layer */
                         /* 0. Reconnect after fatal from remote peer ? */
                         if (0 != msg->ud_qpn && cm_ud_qpn[msg->client_rank] != msg->ud_qpn) {
-                            if (cm_nr_update_udqp(msg, msg->client_rank) < 0) {
+                            if (cm_nfr_update_udqp(msg, msg->client_rank) < 0) {
                                 CM_ERR("Failed to update qp num from: %d", msg->client_rank);
                                 return -1;
                             }
                         }
                         /* 1. Re-Init server client state */
-                        cm_nr_reset_connection(msg->client_rank);
+                        cm_nfr_reset_connection(msg->client_rank);
                         /* 2. Cancel Server rep messages */
                         cm_clean_pending(msg->client_rank, CM_PENDING_SERVER);
                         /* 3. increase cid */
@@ -903,13 +934,13 @@ int cm_handle_msg(cm_msg * msg)
                         /* 5. Create new QP */
                         /* 6. Move it from INIT to RTR */
                         /* 7. reply with new data */
-                        cm_nr_accept_rec(msg); /* Steps 4-5-6 */
+                        cm_nfr_accept_rec(msg); /* Steps 4-5-6 */
 
                     }
                 } else if (cm_state_cli[msg->client_rank] !=
                         CM_CONN_STATE_C_IDLE) {
 
-                    if (NR_ENABLED)
+                    if (viadev_use_nfr)
                         assert(cid[msg->client_rank] == msg->cid);
 
                     /*already initiated a request to that peer */
@@ -918,13 +949,13 @@ int cm_handle_msg(cm_msg * msg)
 
                     /* Reconnect after fatal from remote peer ? */
 
-                    if (NO_FATAL != nr_fatal_error) {
+                    if (NO_FATAL != nfr_fatal_error) {
                         /*that peer should be server */
                         return 0;
                     }
 
-                    if (NR_ENABLED && 0 != msg->ud_qpn && cm_ud_qpn[msg->client_rank] != msg->ud_qpn) {
-                        if (cm_nr_update_udqp(msg, msg->client_rank) < 0) {
+                    if (viadev_use_nfr && 0 != msg->ud_qpn && cm_ud_qpn[msg->client_rank] != msg->ud_qpn) {
+                        if (cm_nfr_update_udqp(msg, msg->client_rank) < 0) {
                             CM_ERR("Failed to update qp num from: %d", msg->client_rank);
                             return -1;
                         }
@@ -937,7 +968,7 @@ int cm_handle_msg(cm_msg * msg)
                             /*that peer should be server */
                             return 0;
                         } else {
-                            if(NR_ENABLED) 
+                            if(viadev_use_nfr) 
                                 cid[msg->client_rank] = msg->cid;
 
                             /*myself should be server */
@@ -946,7 +977,7 @@ int cm_handle_msg(cm_msg * msg)
                     }
                 } else {
                     /* First connection request, we do not care for CID */
-                    if (NR_ENABLED && msg->cid > 0) {
+                    if (viadev_use_nfr && msg->cid > 0) {
                         assert(msg->cid - cid[msg->client_rank] == 1);
                         cid[msg->client_rank] = msg->cid;
                     }
@@ -973,7 +1004,7 @@ int cm_handle_msg(cm_msg * msg)
         case CM_MSG_TYPE_REP:
             {
 
-                if(NR_ENABLED) {
+                if(viadev_use_nfr) {
                     if (cid[msg->server_rank] == msg->cid) {
                         CM_DBG("cm_conn_state[%d]=%d, cm_state_srv[%d]=%d, cm_state_cli[%d]=%d",
                                 msg->server_rank, cm_conn_state[msg->server_rank],
@@ -1165,9 +1196,9 @@ int MPICM_Init_UD(uint32_t * ud_qpn)
     cm_state_srv = malloc(viadev.np * sizeof(CM_conn_state_srv));
     cm_ah = malloc(viadev.np * sizeof(struct ibv_ah *));
     cm_ud_qpn = malloc(viadev.np * sizeof(uint32_t));
-    cm_lid = malloc(viadev.np * sizeof(uint16_t));
+    cm_lgid = malloc(viadev.np * sizeof(lgid));
 
-    if (NR_ENABLED && NO_FATAL == nr_fatal_error) {
+    if (viadev_use_nfr && NO_FATAL == nfr_fatal_error) {
         cid = calloc(viadev.np, sizeof(uint16_t));
     }
 
@@ -1348,7 +1379,7 @@ int MPICM_Init_UD(uint32_t * ud_qpn)
     return 0;
 }
 
-int MPICM_Connect_UD(uint32_t * qpns, uint16_t * lids)
+int MPICM_Connect_UD(uint32_t * qpns, lgid *lgids)
 {
     int i, ret;
     pthread_attr_t attr;
@@ -1358,16 +1389,23 @@ int MPICM_Connect_UD(uint32_t * qpns, uint16_t * lids)
         return -1;
     }
     
-    /*Copy qpns and lids */
+    /*Copy qpns and lgids */
     memcpy(cm_ud_qpn, qpns, viadev.np * sizeof(uint32_t));
-    memcpy(cm_lid, lids, viadev.np * sizeof(uint16_t));
+    memcpy(cm_lgid, lgids, viadev.np * sizeof(lgid));
 
     /*Create address handles */
     for (i = 0; i < viadev.np; i++) {
         struct ibv_ah_attr ah_attr;
         memset(&ah_attr, 0, sizeof(ah_attr));
-        ah_attr.is_global = 0;
-        ah_attr.dlid = cm_lid[i];
+
+        if(viadev_eth_over_ib) {
+            ah_attr.is_global = 1;
+            ah_attr.grh.hop_limit = 1;
+            ah_attr.grh.dgid = lgids[i].gid;
+        } else {
+            ah_attr.is_global = 0;
+            ah_attr.dlid = lgids[i].lid;
+        }
         ah_attr.sl = viadev_default_service_level;
         ah_attr.src_path_bits = 0;
         ah_attr.port_num = viadev_default_port;
@@ -1481,9 +1519,9 @@ int MPICM_Finalize_UD()
         free(cm_ah);
     if (cm_ud_qpn)
         free(cm_ud_qpn);
-    if (cm_lid)
-        free(cm_lid);
-    if (NR_ENABLED && NO_FATAL == nr_fatal_error) {
+    if (cm_lgid)
+        free(cm_lgid);
+    if (viadev_use_nfr && NO_FATAL == nfr_fatal_error) {
         if (cid)
             free(cid);
     }
@@ -1531,12 +1569,16 @@ int MPICM_Reconnect_req(int peer_rank)
     cm_state_cli[peer_rank] = CM_CONN_STATE_C_REQUESTING;
     ++cid[peer_rank];
     req.cid = cid[peer_rank];
-    viadev.qp_hndl[peer_rank] = cm_create_rc_qp(peer_rank, &flag, 0);
+    if(!(viadev.qp_hndl[peer_rank] = 
+                cm_create_rc_qp(peer_rank, &flag, 0))) {
+        CM_ERR("MPICM_Reconnect_req: cm_create_rc_qp failed\n");
+        return -1;
+    }
     req.msg_type = CM_MSG_TYPE_REQ;
     req.client_rank = viadev.me;
     req.server_rank = peer_rank;
     req.req_id = ++cm_req_id_global;
-    req.lid = cm_lid[viadev.me];
+    req.lgid = cm_lgid[viadev.me];
 
     if (1 == c->in_restart) {
         req.ud_qpn = cm_ud_qp->qp_num; /* put new qp numbers */
@@ -1593,13 +1635,13 @@ int MPICM_Connect_req(int peer_rank)
     CM_DBG("Sending Req to rank %d", peer_rank);
     cm_state_cli[peer_rank] = CM_CONN_STATE_C_REQUESTING;
     flag = 0;
-    if (NR_ENABLED) {
+    if (viadev_use_nfr) {
         req.cid = cid[peer_rank];
     }
     if(!(viadev.qp_hndl[peer_rank] = cm_create_rc_qp(peer_rank, &flag, 0)))
     {
-    CM_ERR("MPICM_Connect_req: cm_create_rc_qp failed");
-    return -1;
+        CM_ERR("MPICM_Connect_req: cm_create_rc_qp failed");
+        return -1;
     }
 
     if (flag == XRC_QP_NEW) {
@@ -1609,7 +1651,7 @@ int MPICM_Connect_req(int peer_rank)
         req.client_rank = viadev.me;
         req.server_rank = peer_rank;
         req.req_id = ++cm_req_id_global;
-        req.lid = cm_lid[viadev.me];
+        req.lgid = cm_lgid[viadev.me];
         req.msg_type = CM_MSG_TYPE_REQ;
         req.ud_qpn = 0;
         req.qpn = viadev.qp_hndl[req.server_rank]->qp_num;

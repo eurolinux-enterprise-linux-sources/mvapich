@@ -13,7 +13,7 @@
  */
 
 
-/* Copyright (c) 2002-2009, The Ohio State University. All rights
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
  * reserved.
  *
  * This file is part of the MVAPICH software package developed by the
@@ -58,7 +58,7 @@
 #include "ib_init.h"
 #include "cm.h"
 #include "cm_user.h"
-#include "nr.h"
+#include "nfr.h"
 
 static void ib_init(void);
 static void ib_qp_enable(void);
@@ -263,11 +263,20 @@ static void get_hca_types(int * num_hcas, int * hca_type) {
 
             if ((!ibv_query_port(hca_context, j, &port_attr)) &&
                     port_attr.state == IBV_PORT_ACTIVE) {
-                if (*num_hcas + 1 > MAX_NUM_HCA) {
-                    error_abort_all(GEN_EXIT_ERR, "Increase MAX_NUM_HCA -- more than"
-                            " %d HCAs detected\n", MAX_NUM_HCA);
-                }
-                hca_type[*num_hcas] = get_hca_type(dev_list[i], hca_context);
+#ifdef TRANSPORT_RDMAOE_AVAIL
+        		if (IBV_LINK_LAYER_ETHERNET == port_attr.link_layer) {
+        		    hca_type[*num_hcas] = RDMAOE;
+#else
+                if (viadev_eth_over_ib) {
+        		    hca_type[*num_hcas] = RDMAOE;
+#endif /* OFED_1_5_RDMAoE */
+        		} else {
+                    if (*num_hcas + 1 > MAX_NUM_HCA) {
+                        error_abort_all(GEN_EXIT_ERR, "Increase MAX_NUM_HCA -- more than"
+                                        " %d HCAs detected\n", MAX_NUM_HCA);
+                    }
+                    hca_type[*num_hcas] = get_hca_type(dev_list[i], hca_context);
+        		}
                 (*num_hcas)++;
                 break;
             }
@@ -323,7 +332,8 @@ static void open_ib_port(void)
             
             if ((! ibv_query_port(hca_context,i,&port_attr)) &&
                     port_attr.state == IBV_PORT_ACTIVE &&
-                    port_attr.lid ) {
+                    ((!viadev_eth_over_ib && port_attr.lid) ||
+						 viadev_eth_over_ib)) {
                 list_active_ports[num_active_ports].hca_id=j;
                 list_active_ports[num_active_ports].port_id=i;
                 num_active_ports++;
@@ -372,9 +382,31 @@ static void open_ib_port(void)
         if ((!ibv_query_port(viadev.context,
                         viadev_default_port,
                         &port_attr)) &&
-                port_attr.state == IBV_PORT_ACTIVE &&
-                port_attr.lid ) {
-            viadev.my_hca_lid = port_attr.lid;
+                port_attr.state == IBV_PORT_ACTIVE) {
+
+#ifdef TRANSPORT_RDMAOE_AVAIL
+            if (IBV_LINK_LAYER_ETHERNET == port_attr.link_layer) {
+                /* Enable eth over ib */
+                viadev_eth_over_ib = 1;
+                /* get guid */
+                if (ibv_query_gid(hca_context, viadev_default_port, 0, &viadev.my_hca_id.gid)){
+                    error_abort_all(GEN_EXIT_ERR, 
+                            "Failed to query MAC on port %d",viadev_default_port);
+                }
+            } else
+#else
+            if (viadev_eth_over_ib) {
+                /* get guid */
+                if (ibv_query_gid(hca_context, viadev_default_port, 0, &viadev.my_hca_id.gid)){
+                    error_abort_all(GEN_EXIT_ERR, 
+                            "Failed to query MAC on port %d",viadev_default_port);
+                }
+            } else
+#endif
+            {
+                /* Disable eth over ib */
+                viadev.my_hca_id.lid = port_attr.lid;
+            }
             viadev.port_attr = port_attr;
             viadev.lmc = port_attr.lmc;
         } else {
@@ -387,7 +419,7 @@ static void open_ib_port(void)
 
     ibv_free_device_list(dev_list);
     free (list_active_ports);
-    D_PRINT("lid=%d\n", viadev.my_hca_lid);
+    D_PRINT("lid=%d\n", viadev.my_hca_id.lid);
 }
 
 #ifdef _SMP_
@@ -516,13 +548,28 @@ void viainit_init_udcm(void)
     /*RTR*/
     memset(&attr, 0, sizeof(struct ibv_qp_attr));
     attr.qp_state = IBV_QPS_RTR;
-    attr.path_mtu = viadev_default_mtu;
+    if(viadev_eth_over_ib) {
+        attr.path_mtu = IBV_MTU_1024; /* need to use default MTU size from ifconfig */
+    } else {
+        attr.path_mtu = viadev_default_mtu;
+    }
     attr.max_dest_rd_atomic = viadev_default_qp_ous_rd_atom;
     attr.min_rnr_timer = viadev_default_min_rnr_timer;
     attr.ah_attr.sl = viadev_default_service_level;
     attr.ah_attr.src_path_bits = viadev_default_src_path_bits;
     attr.ah_attr.port_num = viadev_default_port;
     attr.ah_attr.static_rate = viadev_default_static_rate;
+
+    if (viadev_eth_over_ib){
+        attr.ah_attr.grh.dgid.global.subnet_prefix = 0;
+        attr.ah_attr.grh.dgid.global.interface_id = 0;
+        attr.ah_attr.grh.flow_label = 0;
+        attr.ah_attr.grh.sgid_index = 0;
+        attr.ah_attr.grh.hop_limit = 1;
+        attr.ah_attr.grh.traffic_class = 0;
+        attr.ah_attr.is_global      = 1;
+        attr.ah_attr.dlid           = 0;
+    }
 
     cm_ib_qp_attr.rc_qp_attr_to_rtr = attr;
     cm_ib_qp_attr.rc_qp_mask_to_rtr = IBV_QP_STATE |
@@ -644,31 +691,32 @@ void viainit_on_demand_setup()
 void viainit_on_demand_exchange(int nprocs)
 {
     typedef struct {
-	pid_t	pid;
-	int	hca_lid;
-	int	ud_qpn;
+        pid_t	pid;
+        lgid    hca_id;
+        int	ud_qpn;
     } od_exchange_info;
 
     od_exchange_info my_info, all_info[nprocs];
     int i;
 
     my_info.pid	    = getpid();
-    my_info.hca_lid = viadev.my_hca_lid;
+    my_info.hca_id  = viadev.my_hca_id;
     my_info.ud_qpn  = viadev.ud_qpn_table[viadev.me];
 
     pmgr_allgather(&my_info, sizeof(my_info), all_info);
 
     for (i = 0; i < viadev.np; i++) {
-	viadev.pids[i]      = all_info[i].pid;
-	viadev.lid_table[i] = all_info[i].hca_lid;
+        viadev.pids[i] = all_info[i].pid;
 
-	if(i != viadev.me) {
-	    viadev.ud_qpn_table[i] = all_info[i].ud_qpn;
-	}
+        viadev.lgid_table[i] = all_info[i].hca_id;
+
+        if(i != viadev.me) {
+            viadev.ud_qpn_table[i] = all_info[i].ud_qpn;
+        }
     }
 
-    if (MPICM_Connect_UD(viadev.ud_qpn_table, viadev.lid_table)) {
-	error_abort_all(GEN_EXIT_ERR, "MPICM_Connect_UD");
+    if (MPICM_Connect_UD(viadev.ud_qpn_table, viadev.lgid_table)) {
+        error_abort_all(GEN_EXIT_ERR, "MPICM_Connect_UD");
     }
 }
 
@@ -678,7 +726,7 @@ void viainit_exchange(int nprocs)
 
     for (i = 0; i < nprocs; ++i) {
         if (i == viadev.me) {
-            qp_list[i] = viadev.my_hca_lid;
+            qp_list[i] = viadev.my_hca_id.lid;
         } else {
             qp_list[i] = viadev.qp_hndl[i]->qp_num;
         }
@@ -687,8 +735,8 @@ void viainit_exchange(int nprocs)
     pid = (int) getpid();
 
     pmgr_alltoall(qp_list, sizeof(int), viadev.qp_table);
-    pmgr_allgather(&viadev.my_hca_lid, sizeof(viadev.my_hca_lid),
-	    viadev.lid_table);
+    pmgr_allgather(&viadev.my_hca_id, sizeof(viadev.my_hca_id),
+            viadev.lgid_table);
     pmgr_allgather(&pid, sizeof(pid), viadev.pids);
 }
 
@@ -769,7 +817,7 @@ int MPID_VIA_Init(int *argc, char ***argv, int *size, int *rank)
     alladdrs = (int *) malloc(3 * viadev.np * sizeof(int));
     local_addr = (int *) malloc(2 * viadev.np * sizeof(int));
 
-    viadev.lid_table = (uint16_t *) calloc(viadev.np ,sizeof(int));
+    viadev.lgid_table = (lgid *) calloc(viadev.np ,sizeof(lgid));
     viadev.qp_table = (uint32_t *) calloc(viadev.np ,sizeof(int));
     viadev.qp_hndl =
         (struct ibv_qp **) calloc(viadev.np ,sizeof(struct ibv_qp *));
@@ -777,7 +825,7 @@ int MPID_VIA_Init(int *argc, char ***argv, int *size, int *rank)
     viadev.pids[viadev.me] = mypid = (int) getpid();
 
     if (alladdrs == NULL || local_addr == NULL ||
-        viadev.lid_table == NULL || viadev.qp_table == NULL) {
+        viadev.qp_table == NULL || viadev.lgid_table == NULL) {
         error_abort_all(GEN_EXIT_ERR,
                         "malloc for alladdrs/local_addr/lid_table/qp_table");
     }
@@ -818,6 +866,11 @@ int MPID_VIA_Init(int *argc, char ***argv, int *size, int *rank)
             for (j = 0; j < remote_host_info[i].hca_count; j++) {
                 if (remote_host_info[i].hca_type[j] != hca_types[0]) {
                     is_homogeneous = 0;
+		            if (RDMAOE == hca_types[0] || 
+                        RDMAOE == remote_host_info[i].hca_type[j]) {
+		                    error_abort_all (IBV_RETURN_ERR,
+                            "Mvapich does not supports RDMAOE and IB networks for the same run\n");
+                    }
                     break;
                 }
             }
@@ -843,7 +896,7 @@ int MPID_VIA_Init(int *argc, char ***argv, int *size, int *rank)
     /* set run-time parameters that have been passed in through
      * environment variables */
     viadev_init_parameters(viadev.np, viadev.me);
-    nr_init();
+    nfr_init();
 
     viadev.num_connections = viadev_use_on_demand ? 0 : viadev.np;
     viadev.maxtransfersize = viadev_max_rdma_size;
@@ -1042,7 +1095,7 @@ void MPID_VIA_Finalize(void)
     ib_finalize();
 
     /* free connection array space */
-    nr_finalize();
+    nfr_finalize();
     if (viadev.connections) {
         free(viadev.connections);
     }
@@ -1052,8 +1105,8 @@ void MPID_VIA_Finalize(void)
 
     pmgr_finalize();
 
-    if (viadev.lid_table) {
-        free(viadev.lid_table);
+    if (viadev.lgid_table) {
+        free(viadev.lgid_table);
     }
     if (viadev.qp_table) {
         free(viadev.qp_table);
@@ -1241,25 +1294,45 @@ static void ib_qp_enable(void)
         memset(&attr, 0, sizeof(attr));
 
         attr.qp_state = IBV_QPS_RTR;
-        attr.path_mtu = viadev_default_mtu;
+
+        if(viadev_eth_over_ib) {
+            attr.path_mtu = IBV_MTU_1024; /* need to use default MTU size from ifconfig */
+        } else {
+            attr.path_mtu = viadev_default_mtu;
+        }
+
         attr.max_dest_rd_atomic = viadev_default_qp_ous_rd_atom;
         attr.min_rnr_timer = viadev_default_min_rnr_timer;
         attr.ah_attr.sl = viadev_default_service_level;
         attr.ah_attr.port_num = viadev_default_port;
         attr.ah_attr.static_rate = viadev_default_static_rate;
+        if (viadev_eth_over_ib){
+                attr.ah_attr.grh.dgid.global.subnet_prefix = 0;
+                attr.ah_attr.grh.dgid.global.interface_id = 0;
+                attr.ah_attr.grh.flow_label = 0;
+                attr.ah_attr.grh.sgid_index = 0;
+                attr.ah_attr.grh.hop_limit = 1;
+                attr.ah_attr.grh.traffic_class = 0;
+                attr.ah_attr.is_global      = 1;
+                attr.ah_attr.dlid           = 0;
+        }
 
         if (i == viadev.me) {
             continue;
         }
         attr.dest_qp_num = viadev.qp_table[i];
         if(!disable_lmc) {
-            attr.ah_attr.dlid = viadev.lid_table[i] + 
+            attr.ah_attr.dlid = viadev.lgid_table[i].lid + 
                 (viadev.me + i) % (power_two(viadev.lmc));
             attr.ah_attr.src_path_bits = 
                 viadev_default_src_path_bits + (viadev.me + i) 
                 % (power_two(viadev.lmc));
         } else {
-            attr.ah_attr.dlid = viadev.lid_table[i];
+            if (viadev_eth_over_ib){
+                attr.ah_attr.grh.dgid = viadev.lgid_table[i].gid;
+            } else {
+                attr.ah_attr.dlid = viadev.lgid_table[i].lid;
+            }
             attr.ah_attr.src_path_bits =
                 viadev_default_src_path_bits;
         }
@@ -1408,7 +1481,7 @@ static void ib_qp_enable(void)
             = FAST_EAGER_CACHED;
 #endif
 #endif
-        if (NR_ENABLED) {
+        if (viadev_use_nfr) {
             WAITING_LIST_INIT(&c->waiting_for_ack);
             WAITING_LIST_INIT(&c->rndv_inprocess);
         }

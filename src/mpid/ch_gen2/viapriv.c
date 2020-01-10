@@ -12,7 +12,7 @@
  *          Michael Welcome  <mlwelcome@lbl.gov>
  */
 
-/* Copyright (c) 2002-2009, The Ohio State University. All rights
+/* Copyright (c) 2002-2010, The Ohio State University. All rights
  * reserved.
  *
  * This file is part of the MVAPICH software package developed by the
@@ -28,7 +28,7 @@
 #include "mpid.h"
 #include "ibverbs_header.h"
 #include "viadev.h"
-#include "nr.h"
+#include "nfr.h"
 #include "viapriv.h"
 #include "viutil.h"
 #include "vbuf.h"
@@ -169,7 +169,7 @@ void viadev_ext_sendq_queue(viadev_connection_t * c, vbuf * v)
     c->ext_sendq_size++;
 
     /* add to waiting for ack list */
-    NR_ADD_TO_LIST(&c->waiting_for_ack, v);
+    NFR_ADD_TO_LIST(&c->waiting_for_ack, v);
 }
 
 /* dequeue and send as many as we can from the extended send queue
@@ -270,7 +270,7 @@ void viadev_backlog_send(viadev_connection_t * c)
 
         if (!c->send_wqes_avail) {
             /* preventing packet dublication on list */
-            NR_REMOVE_FROM_WAITING_LIST((&c->waiting_for_ack), v);
+            NFR_REMOVE_FROM_WAITING_LIST((&c->waiting_for_ack), v);
             viadev_ext_sendq_queue(c, v);
             continue;
         }
@@ -337,7 +337,7 @@ void viadev_post_send(viadev_connection_t * c, vbuf * v)
             error_abort_all(IBV_RETURN_ERR,"Error posting send\n");
         }
 
-        NR_ADD_TO_LIST(&c->waiting_for_ack, v);
+        NFR_ADD_TO_LIST(&c->waiting_for_ack, v);
 
         pthread_spin_lock(&viadev.srq_post_spin_lock);
 
@@ -377,7 +377,7 @@ void viadev_post_send(viadev_connection_t * c, vbuf * v)
             if(ibv_post_send(c->vi, &(v->desc.u.sr), &bad_wr)) {
                 error_abort_all(IBV_RETURN_ERR,"Error posting send\n");
             }
-            NR_ADD_TO_LIST(&c->waiting_for_ack, v);
+            NFR_ADD_TO_LIST(&c->waiting_for_ack, v);
 
             /* do post receive after post_sr for last part of message
              * so latency hidden during post_sr
@@ -399,7 +399,7 @@ void viadev_post_send(viadev_connection_t * c, vbuf * v)
              */
             viadev_backlog_queue_t *q = &c->backlog;
             BACKLOG_ENQUEUE(q, v);
-            NR_ADD_TO_LIST(&c->waiting_for_ack, v);
+            NFR_ADD_TO_LIST(&c->waiting_for_ack, v);
 
             D_PRINT("post_send QUEUED: [vi %d][%d %d %d][vbuf %p] %s\n",
                     c->global_rank, c->remote_credit, c->local_credit,
@@ -497,7 +497,7 @@ void post_fast_rdma_with_completion(viadev_connection_t * c, int len)
                 c->RDMA_send_buf[n].desc.sg_entry.length,
                 c->max_inline);
     }
-    NR_ADD_TO_LIST_FAST(&c->waiting_for_ack, &c->RDMA_send_buf[n]);
+    NFR_ADD_TO_LIST_FAST(&c->waiting_for_ack, &c->RDMA_send_buf[n]);
 }
 
 int fast_rdma_ok(viadev_connection_t * c, int data_size,
